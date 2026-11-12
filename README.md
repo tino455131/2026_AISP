@@ -28,3 +28,7 @@
 - Target Users: Teams with a hierarchical organizational structure.
 - Method: task performance, pre- and post-study surveys, brief interviews, and analysis of AI-agent chat histories.
 - Minimum evidence threshold: 2 team with the same teamleader and member.
+
+## Discord bot starter
+
+Python Discord bot 的基本架構位於 [discord_bot](discord_bot/README.md)，包含 `/ping` 斜線指令、套件清單與設定步驟。
