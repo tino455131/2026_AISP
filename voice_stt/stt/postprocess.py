@@ -2,7 +2,7 @@
 
 For every segment we:
 1. convert the text to Taiwan Traditional Chinese (OpenCC "s2twp"),
-2. drop it if it is only a known hallucination or is empty,
+2. drop it if it is only a known hallucination, stray English noise, or is empty,
 3. compute a 0-1 confidence and attach warning flags for humans to check.
 """
 
@@ -39,6 +39,13 @@ HALLUCINATION_PHRASES = (
 LOW_LOGPROB = -1.0
 HIGH_COMPRESSION = 2.4
 NO_SPEECH = 0.6
+
+# In a Chinese meeting, a short, unsure segment with no Chinese at all is almost always
+# the model guessing at a cough, a laugh or a "嗯": real Discord tests gave "Yeah.",
+# "OK.", "Squid.", "It comes forward." (all under 3.5 s, confidence 0.37-0.53).
+STRAY_MAX_SECONDS = 3.5
+STRAY_MAX_CONFIDENCE = 0.6
+_CJK_RE = re.compile(r"[㐀-鿿]")
 
 # The same 1-4 characters repeated 5+ times in a row, e.g. "對對對對對對".
 # (Three or four "對" is normal speech, so we only flag longer runs.)
@@ -106,6 +113,9 @@ class PostProcessor:
             if key in self._blacklist:
                 report.dropped.append((seg.start, text_raw, "hallucination"))
                 continue
+            if _is_stray_non_chinese(text, seg):
+                report.dropped.append((seg.start, text_raw, "stray_non_chinese"))
+                continue
 
             utterances.append(
                 Utterance(
@@ -135,6 +145,14 @@ class PostProcessor:
         if any(phrase in key for phrase in self._blacklist):
             flags.append("hallucination_suspect")
         return flags
+
+
+def _is_stray_non_chinese(text: str, seg: Segment) -> bool:
+    return (
+        not _CJK_RE.search(text)
+        and seg.end - seg.start <= STRAY_MAX_SECONDS
+        and _confidence(seg.avg_logprob) < STRAY_MAX_CONFIDENCE
+    )
 
 
 def _confidence(avg_logprob: float) -> float:

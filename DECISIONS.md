@@ -41,3 +41,43 @@
 - 沒參加會議但看得到語音頻道的人，能否讀逐字稿？
 - 輸出前的聽眾檢查由 AI 組實作。
 **Led by:** Ping3227
+
+## 2026-11-18 — 語音錄音 bot `voice_bot/`（Node.js）與可替換的摘要介面 `meeting_ai/`
+
+**What:**
+
+- `voice_bot/` 是另一個 Discord 應用程式（自己的 token），用 discord.js 14.28.1 加 @discordjs/voice 0.19.2（內建 DAVE 加密）錄音。
+- 組長用 `/record start` 開始錄音。bot 暱稱改成 `[REC]`，並在語音頻道聊天室貼出同意按鈕。**只錄有按「同意」的人**，一句話存成一個 WAV。
+- 撤回同意會立刻刪掉那個人的錄音。所有人離開時會自動停止。
+- `/record stop` 之後的流程：
+  1. 執行 `voice_stt` 的 `stt.ingest_recording`，轉文字寫進資料庫，然後刪除錄音。
+  2. 執行 `meeting_ai.summarize_session` 產生摘要：存進 `voice_session_summaries`，並貼回同一個語音頻道（不發 @ 通知）。
+- `meeting_ai/` 定義 `MeetingSummarizer` 介面，內建兩個版本：
+  - `simple`：關鍵字，不用 API，供測試
+  - `claude`：Claude API，用 JSON schema 固定輸出
+  - 用 `MEETING_SUMMARIZER` 切換；AI 組可以換成自己的實作。
+- 程式由 AI（Claude）協助撰寫，見 `PROMPT_LOG.md`。
+
+**Why:**
+
+- 收音只能用 Node：Python 有 DAVE 解密函式庫（`davey`、`dave.py`），但到 2026-11-18 為止，還沒有正式版的 Python Discord 套件把它接進收音（見下方 Open questions）。Node 的 `@discordjs/voice` 0.19.2 已經可以收音。所以 Node 只負責錄音和同意流程，轉文字與摘要都在 Python，沿用已測過的 `voice_stt`。
+- 用獨立的 bot 帳號：同一個 token 不能被兩個程式同時登入，分開也讓錄音出錯不會影響文字紀錄。
+- 一句話一個檔：可以精準刪掉撤回者的部分，時間位移也直接記在 `manifest.json`。
+- 摘要用介面隔開：使用者想先測完整流程，正式的摘要由 AI 組負責，換實作時不需要改錄音或資料庫。
+
+**Alternative rejected:**
+
+- 用 Craig 等第三方錄音 bot：錄音會經過第三方伺服器，同意流程也無法自訂。
+- 把錄音功能塞進皓元的 Python bot：Python 無法收音。
+
+**Open questions:**
+
+- 已在 Discord 實測收音（2026-11-19）：錄到的片段沒有漏收；照稿念 10 句時錯字率約 9%，主要錯在英文術語。1–2 秒的短片段辨識很差，因此轉文字前會把同一人相近的片段接起來。兩人對話的發言順序還沒照稿驗證。
+- 錄音同意的公告文字要請全組確認。
+- 什麼時候可以改用 Python 錄音（2026-11-18 查到的狀況）：
+  - discord.py 本體不支援收音；它的收音外掛 `discord-ext-voice-recv` 有多個社群送的 DAVE 修補，都還沒合併。
+  - py-cord 的 DAVE 收音在 PR #3159，預計進 2.9.0rc1；正式版 2.8.1 還不行。
+  - 重新評估的條件：py-cord 出了包含 DAVE 收音的正式版，而且有人實測可用。
+  - 即使改用也要注意：py-cord 和 discord.py 的模組都叫 `discord`，不能裝在同一個環境。錄音仍然要是獨立的程式和 bot 帳號，省下的只是「多一種語言」。
+
+**Led by:** Ping3227

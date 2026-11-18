@@ -130,3 +130,180 @@
 **據此調整：** 在 `glossary.example.txt` 加註：只放模型常聽錯的英文詞，並用真人錄音比較加與不加的差別。
 
 **尚未測試：** 真人聲音（口音、語速、噪音）、兩人同時說話、Discord 即時錄音、真實的 Discord 權限設定。
+
+## 2026-11-18 — 語音錄音 bot 與摘要介面（Ping3227）
+
+**使用者原始要求：**
+
+> 我覺得測試可以晚點，你先弄bot
+
+（實作中追加）
+
+> 你也用那個互動的mod跟我說明清楚，操作跟各種東西該怎麼使用，另外我想要簡單弄一下LLM那端的東西，但要用接口做，只是要讓我測試，之後可能會換成LLM那組的東西
+
+**模型／工具：**
+
+- Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+- 套件：discord.js 14.28.1、@discordjs/voice 0.19.2（附帶 @snazzah/davey 0.1.12）、@discordjs/opus 0.11.0、prism-media 1.3.5、anthropic Python SDK 2.10.0
+- 先查過 npm 的版本與 `@discordjs/voice` 的型別定義，確認 DAVE 加密與收音的 API
+
+**產出：**
+
+- `voice_bot/`：`src/` 共 7 個檔（config、consent、wav、manifest、recorder、commands、index、ingest）、`test/units.test.js`（8 項）、README、`.env.example`
+- `voice_stt/stt/ingest_recording.py` 與 2 項測試
+- `meeting_ai/`：`interface.py`、`simple.py`、`claude.py`、`summarize_session.py`，以及 8 項測試和 README
+- `docs/ai_memory_api.md` 補上摘要介面說明，`DECISIONS.md` 新增一筆
+
+**檢查：**
+
+- voice_bot 8 項、voice_stt 19 項、meeting_ai 8 項、discord_bot 24 項測試全部通過。
+- 不經 Discord 的串接測試：
+  1. 用 voice_bot 自己的程式寫出錄音資料夾（合成語音，兩人，另含一位撤回者）。
+  2. 由 Node 呼叫 Python 轉文字（存了 8 句，含載入模型 9.7 秒）。
+  3. 摘要找出 2 項待辦，負責人正確對應到兩人。
+  4. 錄音檔已刪除。
+- 沒有 token 時，啟動 bot 會顯示清楚的錯誤訊息並結束。
+- ClaudeSummarizer 只用假的 client 測過，沒有實際呼叫 API。
+
+**尚未測試：** 在真的 Discord 伺服器上的收音、同意按鈕、暱稱，以及多人同時說話。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-18 — 語音 bot 的 token 設定與檢查指令（Ping3227）
+
+**使用者原始要求：**
+
+> 有沒有辦法你能幫我記錄一下權杖馬
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**AI 的回應：** 不建議把 token 貼進 AI 對話（對話紀錄會留存）。改成由 AI 建好 `voice_bot/.env`，由使用者自己貼上 token，再用不會顯示 token 的指令檢查。
+
+**產出：**
+
+- `voice_bot/src/check.js`（`npm run check`）：
+  - 檢查 `.env` 的每一項。token 只顯示它屬於哪個 bot ID，不顯示內容。
+  - 只向 Discord 確認 token 有效、bot 是否已在伺服器裡。還沒邀請時會印出邀請網址（權限已勾好）。
+  - 加 `--offline` 可以不連網。
+- `src/config.js`：新增 `botIdFromToken`、`tokenProblems`（抓「多了 Bot 」、空白、引號、格式不對）、`inviteUrl`。token 沒填時的錯誤訊息改得更清楚。
+- `.env.example` 補上 `MEETING_SUMMARIZER`、`ANTHROPIC_API_KEY`（註解）。README 與互動窗格的操作手冊補上 `npm run check`。
+
+**檢查：**
+
+- voice_bot 9 項測試通過（新增 1 項，使用編造的 token）。
+- 用編造的 token 執行 `npm run check`：離線全部 ✅；連 Discord 時正確回報「token 無效」。
+- 確認 `voice_bot/.env` 被 `.gitignore` 排除。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-19 — 錄音品質診斷：保留錄音與掉封包估計（Ping3227）
+
+**使用者原始要求：**
+
+> 效果好像不太好，有沒有甚麼改善方案
+
+> 不太好吧，她錄音錄出來感覺很多都不正確
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**AI 的判斷：** 第一次在 Discord 實測，7 句裡有好幾句錯（含整句變英文）。可能是錄音本身不好（例如 discord.js 有人回報 DAVE 換金鑰時會靜靜地掉封包，issue #11441），也可能是每段太短導致辨識不好。先做能分辨兩者的工具，再決定怎麼改。
+
+**產出：**
+
+- `voice_bot/.env` 新增測試開關 `KEEP_AUDIO=1`：轉完文字不刪錄音（只保留有同意的人）。`npm run check` 開著時會提醒。
+- `src/recorder.js` 新增 `PacketCounter`：依封包抵達時間估計每段掉了多少聲音（停頓不算）。超過 10% 時在終端機警告，並把比例記在 `manifest.json` 每段的 `lost`。
+- README「出問題時」補上分辨方法。
+
+**檢查：** voice_bot 10 項、voice_stt 19 項測試通過；新增的掉封包測試涵蓋穩定、抖動、一半遺失、中間停頓四種情況。
+
+**尚未驗證：** 真實 Discord 錄音的掉封包比例。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-19 — 錄音品質診斷（續）：DAVE 解密問題偵測（Ping3227）
+
+**使用者原始要求：**
+
+> 你看一下（第二次實測後）
+
+**AI 的發現：**
+
+- 第二次實測時 bot 沒有重開，跑的還是舊版，所以錄音照樣被刪了。
+- 讀了 `@discordjs/voice` 0.19.2 的收音程式，有兩種情況會讓錄音變差，而且都不會報錯：
+  1. DAVE 解密失敗時，封包會被直接丟掉，聲音因此斷斷續續。
+  2. DAVE 還沒準備好時，加密中的封包會原封不動送出來。拿它解碼會變成雜音，模型就會「聽」出不存在的句子。
+
+**產出：**
+
+- `src/recorder.js`：
+  - 開啟連線的 debug 訊息，統計 `[DAVE] Failed to decrypt` 的次數。
+  - 在收音和解碼中間加一道過濾：結尾是 `FA FA`（DAVE 加密標記）的封包丟掉不解碼，並計數。
+  - 每段的 `undecrypted`、整場的 `diagnostics` 記進 `manifest.json`，錄音結束時在終端機摘要。
+- 新增測試：判斷加密封包（11 項全部通過）。
+
+**尚未驗證：** 真實錄音中這兩種情況有沒有發生、發生多少。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-19 — 逐字稿的發言順序：錄音補上停頓、逐字稿用名字（Ping3227）
+
+**使用者原始要求：**
+
+> 感覺也要能分出彼此講話的順序
+
+> 你可不可以幫我重開／這些調整你來做是不是比較方便比較快，我這樣也不會用錯
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**AI 的判斷：** 每一句本來就有時間，資料庫也是照時間排序。但說話者短暫停頓時，Discord 不會傳送封包，錄音檔裡就少了那段時間，同一段裡後面句子的時間會偏早，兩個人的句子可能排錯順序。
+
+**產出：**
+
+- `voice_bot/src/recorder.js` 新增 `ClipTimeline`：依封包抵達時間，用 Discord 的靜音封包（20 毫秒）補上停頓與漏收的空洞，讓錄音長度和真實時間一致（60 毫秒以內的延遲視為網路抖動，不補）。
+- `voice_stt/stt/output.py`：`transcript.md` 改用 Discord 顯示名稱，不再顯示使用者 ID。
+- 測試：voice_bot 12 項（新增補停頓與靜音封包長度）、voice_stt 20 項（新增名字顯示）全部通過。
+- AI 代為在 `voice_bot/.env` 加上 `KEEP_AUDIO=1`（沒有讀取或顯示 token），停止舊的 bot（先確認沒有錄音在進行），並用新版重新啟動。
+
+**尚未驗證：** 真實多人對話中，補停頓後的順序是否正確。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-19 — 提高辨識準確度：合併短片段、團隊詞彙表、過濾短英文雜訊（Ping3227）
+
+**使用者原始要求：**
+
+> 好，三項都做
+
+（承接上一輪 AI 的建議：照稿念的實測錯字率約 9%，短片段大多辨識錯，人名和英文術語常錯）
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**怎麼決定詞彙表內容：** 用保留下來的同一段真人錄音（照稿念 10 句）重跑四次比較：
+
+| 設定 | 錯字率 |
+|---|---|
+| 不加 | 9.4% |
+| 名字 + 英文術語 | 10.5% |
+| 名字 + 英文術語（不含 SQLite、PostgreSQL） | 10.5% |
+| 只放名字 | 8.8% |
+
+只放名字時「皓元」認對了；加英文術語則會把「SQLite」帶偏。樣本只有一段錄音，結論還不穩。
+
+**產出：**
+
+- `voice_stt/stt/ingest_recording.py`：
+  - 同一人的片段若下一段在 3 秒內開始，而且中間沒有別人講話，就接成一段再辨識（最長 60 秒），空檔補靜音，讓時間不變。
+  - 自動使用 `voice_stt/glossary.txt`。
+  - 結果多回報 `pieces`（實際辨識了幾段）。
+- `voice_stt/glossary.txt`：皓元、Alex、claire，並附上實測數字。
+- `voice_stt/stt/postprocess.py`：3.5 秒以內、沒有中文字、把握度 < 0.6 的句子丟掉（`stray_non_chinese`）。
+- README、DECISIONS 的「尚未測試」改成實測結果。
+
+**檢查：**
+
+- voice_stt 25 項測試通過，新增：雜訊過濾、分組不跨別人發言、接起來的音檔長度與靜音、讀不到的音檔不處理、詞彙表。
+- 用保留的錄音副本和暫存資料庫跑完整流程：3 段接成 1 段，存了 17 句，「皓元」「沒有的話」都正確，結尾兩句英文雜訊也消失了。
+
+**尚未驗證：** 兩人以上對話時，合併後的發言順序。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］

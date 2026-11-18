@@ -53,6 +53,14 @@ py -3.11 -m venv .venv
   另外在 `transcripts/` 存一份給人看的 Markdown。
 - AI 組怎麼讀這些資料，見 [docs/ai_memory_api.md](../docs/ai_memory_api.md)。
 
+## 錄音 bot 的資料夾 → 資料庫（`stt.ingest_recording`）
+
+voice_bot 在 `/record stop` 後會自動執行，通常不用手動跑。它比上面多做兩件事：
+
+- **把同一個人相近的片段接起來再辨識**：下一段在 3 秒內開始、中間沒有別人講話，就接成一段（最長 60 秒），片段間的空檔補上靜音，所以句子時間不變、發言順序也不會亂。
+  原因：Discord 實測時，1–2 秒的短片段大多辨識錯；同一段 48 秒的錄音，錯字率約 9%。
+- **自動使用團隊詞彙表** [glossary.txt](glossary.txt)：目前只放組員名字，因為實測加英文術語反而變差（檔案裡有數字）。用 `--glossary 其他檔案` 可以換掉。
+
 ## 每一句的欄位（草稿，待和皓元、AI 組確認）
 
 | 欄位 | 意思 |
@@ -72,6 +80,7 @@ py -3.11 -m venv .venv
 |---|---|
 | 整句是模型在安靜時亂生的話（例如「謝謝觀看」「字幕由 Amara.org 社群提供」） | 丟掉，並在終端機列出 |
 | 句子裡含有上面那種話 | 保留，標 `hallucination_suspect` |
+| 3.5 秒以內、完全沒有中文字、把握度低於 0.6（例如「Yeah.」「OK.」「Squid.」，通常是咳嗽、笑聲或「嗯」被猜成英文） | 丟掉，並在終端機列出 |
 | 模型沒把握（avg_logprob < -1.0） | 標 `low_confidence` |
 | 一直重複（壓縮比 > 2.4，或同字連續 5 次以上） | 標 `repetitive` |
 | 可能根本不是人聲（no_speech_prob > 0.6） | 標 `maybe_no_speech` |

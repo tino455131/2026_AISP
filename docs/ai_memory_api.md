@@ -87,6 +87,8 @@ else:
     view.summary.content
 ```
 
+**產生摘要的介面**：見 [meeting_ai/README.md](../meeting_ai/README.md)。`MeetingSummarizer` 只要實作 `summarize()` 就能替換。目前內建 `simple`（關鍵字，測試用）和 `claude` 兩個版本；錄音結束後由 voice_bot 自動呼叫，並把摘要貼回同一個語音頻道。
+
 保存與失效規則（已實作）：
 
 - **一份摘要只對應一場會議**（一個語音頻道），不跨頻道混合，權限才能直接沿用那個頻道。

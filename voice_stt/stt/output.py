@@ -32,18 +32,31 @@ def read_jsonl(path: Path) -> list[Utterance]:
 
 
 def render_markdown(
-    utterances: Iterable[Utterance], *, title: str, meta: dict[str, str]
+    utterances: Iterable[Utterance],
+    *,
+    title: str,
+    meta: dict[str, str],
+    names: dict[str, str] | None = None,
 ) -> str:
+    """`names` maps a speaker id to a display name; unknown speakers keep their id."""
+    names = names or {}
     lines = [f"# 逐字稿：{title}", ""]
     lines += [f"- {key}：{value}" for key, value in meta.items()]
     lines += ["- ⚠️ = 系統沒把握，請人工確認", ""]
     for u in utterances:
         warn = f" ⚠️({', '.join(u.flags)})" if u.flags else ""
-        lines.append(f"[{fmt_ts(u.start)}] **{u.speaker}**：{u.text}{warn}  ")
+        who = names.get(str(u.speaker), u.speaker)
+        lines.append(f"[{fmt_ts(u.start)}] **{who}**：{u.text}{warn}  ")
     return "\n".join(lines) + "\n"
 
 
 def write_markdown(
-    utterances: Iterable[Utterance], path: Path, *, title: str, meta: dict[str, str]
+    utterances: Iterable[Utterance],
+    path: Path,
+    *,
+    title: str,
+    meta: dict[str, str],
+    names: dict[str, str] | None = None,
 ) -> None:
-    path.write_text(render_markdown(utterances, title=title, meta=meta), encoding="utf-8")
+    text = render_markdown(utterances, title=title, meta=meta, names=names)
+    path.write_text(text, encoding="utf-8")
