@@ -53,3 +53,19 @@
 **產出與調整：** 新增 `channel_access.py` 與權限測試，修改 `bot.py` 啟用 Members Intent 並提供內部授權讀取服務；更新 bot README。依檢查結果，討論串父頻道權限改為每次重新取得，避免使用快取的舊權限。未改動訊息資料庫 schema。
 
 **檢查：** 在專案的 `.venv` 中執行 10 項本機測試全部通過；尚未使用測試伺服器驗證實際 Discord 權限設定。
+
+## 2026-11-18 — 語音轉文字模組 `voice_stt/`（Ping3227）
+
+**使用者原始要求：**
+
+> 你就先按照這個分工做，然後別人的part你最多寫一些簡單的東西測試，我們後面再考慮要不要寫完
+
+**前情：** 同一段對話中先討論並同意了計畫：第一步只做「給一個音檔 → 輸出台灣繁體逐字稿」，使用 Breeze-ASR-25 + faster-whisper、VAD、OpenCC、幻覺過濾、低信心標記；先不接 Discord 與資料庫。之後依團隊開發分支，從 `services/stt/` 改放到根目錄的 `voice_stt/`，與 `discord_bot/` 並列。
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版；本機 Python 3.11、faster-whisper 1.2.1、CTranslate2 4.9.0、OpenCC 1.4.2。
+
+**產出：** 根目錄 `.gitignore`（擋 `.env`、錄音、逐字稿、資料庫、`.venv`）；`voice_stt/stt/`（`schema.py`、`engine.py`、`postprocess.py`、`output.py`、`cli.py`、`cuda_dlls.py`）；13 個不需下載模型的單元測試；`voice_stt/README.md`、`requirements.txt`、`glossary.example.txt`；`DECISIONS.md` 新增一筆。
+
+**檢查：** `pytest` 13 項通過；CTranslate2 偵測得到 RTX 5070 Ti，支援 float16／int8。尚未下載模型做實際辨識。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］

@@ -1,0 +1,15 @@
+# 詞彙表範例：一行一個詞，# 開頭是註解。
+# 用法：python -m stt meeting.wav --glossary glossary.txt
+# 放進常講、但模型容易聽錯的專有名詞（也可以加組員名字）。
+Discord
+GitHub
+Notion
+PR
+merge
+main
+branch
+token
+bot
+code steward
+DECISIONS.md
+CP2

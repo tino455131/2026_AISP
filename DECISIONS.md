@@ -21,3 +21,9 @@
 
 **What:** 新增內部 ChannelAccess 與 AuthorizedMessageReader。訊息仍按 guild_id／channel_id 保存；每次查詢重新取得頻道、成員及權限，可列出目前能看見頻道的人類成員。讀取已存訊息須有 View Channel 與 Read Message History；私人討論串另須為成員或在父頻道有 Manage Threads。無法確認權限時不回傳資料。
 **Why:** 讓未來 AI 記憶能區分來源頻道，並避免把私人頻道文字交給沒有目前存取權的人。可見名單不持久保存，避免角色、覆寫或成員資格變更後使用過期資料。此決定需要 Server Members Intent；目前仍未加入公開查詢指令或 AI 回答功能。
+
+## 2026-11-18 — 語音轉文字模組 `voice_stt/`（F6）
+
+**What:** 新增 `voice_stt/`，把一個音檔轉成台灣繁體中文逐字稿（JSONL 給程式、Markdown 給人看）。在本機 GPU 以 faster-whisper 執行聯發科的 Breeze-ASR-25（Apache-2.0），並做 VAD 跳過靜音、OpenCC `s2twp` 轉台灣繁體、過濾模型在靜音時亂生的句子，沒把握的句子標 ⚠️。與 `discord_bot/` 分開資料夾與 `.venv`，因為語音辨識的套件（含 CUDA 函式庫）很大，bot 本身不需要。程式由 AI（Claude）協助撰寫，見 `PROMPT_LOG.md`。
+**Why:** F6「語音輸入、文字輸出」需要能處理台灣口音與中英夾雜（PR、merge、token）的語音辨識；Breeze-ASR-25 正是為此調整的模型。在本機執行，會議錄音不會離開主機。不採用雲端語音 API（例如 OpenAI、Gemini 的音訊模型），因為會把私人會議錄音交給第三方，而且依分鐘計費。Discord 本來就把每個人的聲音分開送給 bot，因此不需要另外做說話者辨識。
+**Led by:** Ping3227

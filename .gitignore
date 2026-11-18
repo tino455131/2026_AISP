@@ -1,0 +1,35 @@
+# ---- Secrets: never commit tokens / API keys --------------------------------
+.env
+*.env
+!.env.example
+
+# ---- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# ---- Node.js ----------------------------------------------------------------
+node_modules/
+
+# ---- Data: recordings, transcripts and databases contain people's private ---
+# ---- speech/messages and must stay on the host machine ----------------------
+*.db
+*.sqlite
+*.sqlite3
+recordings/
+transcripts/
+models/
+*.wav
+*.mp3
+*.m4a
+*.ogg
+*.flac
+*.opus
+
+# ---- OS / editors -----------------------------------------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
