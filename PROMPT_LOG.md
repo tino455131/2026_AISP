@@ -69,3 +69,31 @@
 **檢查：** `pytest` 13 項通過；CTranslate2 偵測得到 RTX 5070 Ti，支援 float16／int8。尚未下載模型做實際辨識。
 
 **我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-18 — 語音逐字稿進資料庫＋給 AI 組的讀取介面（Ping3227）
+
+**使用者原始要求：**
+
+> 我理解了，你開始做吧，但我有兩個擔憂，一個是接給LLM功能那邊的api有定義嗎? 再來是，我們有沒有必要做一個資訊的暫時整理處理區，就是不是raw資料的，這樣才不用一直reprocess，這部分會式做在我們這還是LLM那邊
+
+**前情：** 讀過皓元的 `discord_bot/` 後，提議「沿用為主、小修」：語音另開新表、沿用 `ChannelAccess`、資料庫開 WAL、AI 輸出前檢查聽眾。使用者同意後開始實作。
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版；本機 Python 3.11、discord.py 2.7、pytest／unittest。
+
+**產出：**
+
+- `discord_bot/transcript_store.py`、`transcript_reader.py`
+- `test_transcript_store.py`（8 項）、`test_transcript_reader.py`（6 項）
+- `bot.py`：建立 `transcripts` 與 `transcript_reader`；刪除頻道或被移出伺服器時一起刪除逐字稿（共 6 行）
+- `voice_stt/stt/session.py`、`import_session.py`、`botdb.py`，以及 `tests/test_session.py`（4 項）
+- `docs/ai_memory_api.md`
+- `discord_bot/README.md`、`voice_stt/README.md` 新增說明
+- `DECISIONS.md` 新增一筆
+
+**檢查：**
+
+- `discord_bot`：皓元原本的 10 項測試加上新增的 14 項，共 24 項通過。
+- `voice_stt`：17 項通過，以假的辨識器測試合併與寫入，未使用真模型。
+- 第一次執行時有一項測試因 Windows 無法刪除未關閉的 SQLite 檔而失敗；改用 `contextlib.closing` 關閉連線後通過。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］

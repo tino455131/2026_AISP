@@ -38,6 +38,21 @@ py -3.11 -m venv .venv
 - `檔名.jsonl`：給程式用，一行一句
 - `檔名.md`：給人看的逐字稿，沒把握的句子標 ⚠️
 
+## 一場會議 → 存進 bot 的資料庫
+
+每人一個音檔（例如 Craig 錄的多軌檔），用 Discord 使用者 ID 標明是誰：
+
+```bash
+.venv/Scripts/python.exe -m stt.import_session --guild-id 伺服器ID --channel-id 語音頻道ID \
+    --started-at 2026-11-18T14:00:00+08:00 --started-by 組長ID \
+    --track 組長ID=leader.wav --track 成員ID=member.wav
+```
+
+- 每個音軌各自辨識，再依時間合併；某個檔案晚開始錄，可以寫 `成員ID=member.wav@2.5`（晚 2.5 秒）。
+- 結果寫進 `discord_bot/data/messages.sqlite3` 的 `voice_sessions`／`voice_lines`，
+  另外在 `transcripts/` 存一份給人看的 Markdown。
+- AI 組怎麼讀這些資料，見 [docs/ai_memory_api.md](../docs/ai_memory_api.md)。
+
 ## 每一句的欄位（草稿，待和皓元、AI 組確認）
 
 | 欄位 | 意思 |

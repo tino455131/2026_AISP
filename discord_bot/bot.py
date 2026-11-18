@@ -12,6 +12,8 @@ from dotenv import load_dotenv
 
 from channel_access import AuthorizedMessageReader, ChannelAccess
 from message_store import MessageStore
+from transcript_reader import AuthorizedTranscriptReader
+from transcript_store import TranscriptStore
 
 
 load_dotenv(Path(__file__).with_name(".env"))
@@ -28,6 +30,9 @@ class BotClient(discord.Client):
         self.store = store
         self.channel_access = ChannelAccess(self, guild_id)
         self.message_reader = AuthorizedMessageReader(self.channel_access, store)
+        # Voice transcripts (F6) live in the same database file as messages.
+        self.transcripts = TranscriptStore(store.path)
+        self.transcript_reader = AuthorizedTranscriptReader(self.channel_access, self.transcripts)
         self._backfill_started = False
         self._backfill_task: asyncio.Task[None] | None = None
 
@@ -164,6 +169,7 @@ class BotClient(discord.Client):
     async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel) -> None:
         if channel.guild.id == self.guild_id:
             await asyncio.to_thread(self.store.delete_channel, self.guild_id, channel.id)
+            await asyncio.to_thread(self.transcripts.delete_channel, self.guild_id, channel.id)
 
     async def on_raw_thread_delete(self, payload: discord.RawThreadDeleteEvent) -> None:
         if payload.guild_id == self.guild_id:
@@ -172,6 +178,7 @@ class BotClient(discord.Client):
     async def on_guild_remove(self, guild: discord.Guild) -> None:
         if guild.id == self.guild_id:
             await asyncio.to_thread(self.store.delete_guild, self.guild_id)
+            await asyncio.to_thread(self.transcripts.delete_guild, self.guild_id)
             logging.warning("Removed from guild %d; deleted its local message log", self.guild_id)
 
 

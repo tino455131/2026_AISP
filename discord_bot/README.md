@@ -47,8 +47,14 @@ messages = await client.message_reader.recent_messages_for(member_id, channel_id
 
 目前沒有公開可見名單的斜線指令，也沒有 AI 檢索或回答功能。這些介面供後續功能在完成權限檢查後使用。
 
+## 語音逐字稿（F6）
+
+語音頻道的會議逐字稿由 [`voice_stt/`](../voice_stt/README.md) 產生，存在**同一個** `data/messages.sqlite3`：`voice_sessions`（一場會議）、`voice_lines`（一句話）、`voice_session_summaries`（會議摘要）。資料庫因此改用 WAL 模式，讓 bot 和 `voice_stt` 兩個程式能同時寫入。
+
+讀取一樣要經過權限檢查：AI 功能使用 `BotClient.transcript_reader`（`transcript_reader.py`），以**語音頻道**的 View Channel + Read Message History 判斷。語音頻道被刪除或 bot 被移出伺服器時，逐字稿與摘要會一起刪除。給 AI 組的完整讀取說明見 [docs/ai_memory_api.md](../docs/ai_memory_api.md)。
+
 ## 本機檢查
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest -v test_channel_access test_message_store test_bot_events
+.\.venv\Scripts\python.exe -m unittest -v test_channel_access test_message_store test_bot_events test_transcript_store test_transcript_reader
 ```
