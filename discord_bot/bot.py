@@ -10,6 +10,7 @@ import discord
 from discord import app_commands
 from dotenv import load_dotenv
 
+from channel_access import AuthorizedMessageReader, ChannelAccess
 from message_store import MessageStore
 
 
@@ -20,10 +21,13 @@ class BotClient(discord.Client):
     def __init__(self, guild_id: int, store: MessageStore) -> None:
         intents = discord.Intents.default()
         intents.message_content = True
+        intents.members = True
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
         self.guild_id = guild_id
         self.store = store
+        self.channel_access = ChannelAccess(self, guild_id)
+        self.message_reader = AuthorizedMessageReader(self.channel_access, store)
         self._backfill_started = False
         self._backfill_task: asyncio.Task[None] | None = None
 

@@ -5,7 +5,7 @@
 ## 設定
 
 1. 在 [Discord Developer Portal](https://discord.com/developers/applications) 建立應用程式與 Bot，取得 Bot Token。
-2. 在 Developer Portal → Bot → **Privileged Gateway Intents** 啟用 **Message Content Intent**。將 bot 安裝到目標伺服器，授予它需要記錄的頻道的 **View Channel** 與 **Read Message History** 權限；斜線指令需要 `bot`／`applications.commands` scope。
+2. 在 Developer Portal → Bot → **Privileged Gateway Intents** 啟用 **Message Content Intent** 與 **Server Members Intent**。前者用來取得訊息文字，後者用來列出完整伺服器成員並計算每個頻道的可見名單。將 bot 安裝到目標伺服器，授予它需要記錄的頻道的 **View Channel** 與 **Read Message History** 權限；斜線指令需要 `bot`／`applications.commands` scope。
 3. 在 Discord 開啟開發者模式，複製目標伺服器 ID。bot 只會記錄 `.env` 指定的這一個伺服器。
 4. 在本資料夾執行：
 
@@ -29,8 +29,26 @@
 
 此資料庫可能包含 bot 可讀取的私人頻道內容。未來的 AI 查詢必須檢查請求者是否仍有權存取對應頻道，不能直接跨頻道合併。部署前也應讓伺服器成員知悉記錄範圍與用途。依 [Discord Developer Policy](https://support-dev.discord.com/hc/en-us/articles/8563934450327-Discord-Developer-Policy)，不得將透過 API 取得的訊息內容用於訓練 AI 模型，除非取得 Discord 明確許可。
 
+## 頻道可見性與安全讀取
+
+每筆訊息以不會隨頻道改名而改變的 `channel_id` 區分。`ChannelAccess` 在每次查詢時向 Discord 取得目前頻道、成員與權限，不把可見名單保存到 SQLite。`visible_members(channel_id)` 回傳頻道 ID、目前名稱、類型、討論串的父頻道 ID，以及可見的人類成員 ID／顯示名稱。名單代表**現在能看到頻道**的人；讀取已存訊息還需要 `Read Message History` 權限。
+
+例如伺服器有 `#team`（頻道 ID 101，Alice 與 Bob 可見）和 `#leader`（頻道 ID 102，只有 Alice 可見）：兩個頻道的訊息會按 ID 分開保存。Bob 查詢 `#team` 的舊訊息可通過權限檢查，查詢 `#leader` 則會得到 `AccessDenied`。若 Bob 之後失去 `#team` 的權限，下一次查詢也會被拒絕；過去能看到並不保證現在仍能讀取。
+
+內部程式應從 `BotClient.message_reader` 讀取訊息：
+
+```py
+visibility = await client.channel_access.visible_members(channel_id)
+can_read = await client.channel_access.can_read_history(member_id, channel_id)
+messages = await client.message_reader.recent_messages_for(member_id, channel_id)
+```
+
+`recent_messages_for` 會先重新核對目前的權限，再讀取單一頻道。沒有 `View Channel`、`Read Message History` 或私人討論串成員資格時會拋出 `AccessDenied`；Discord 無法確認頻道、成員或權限時會拋出 `AccessUnavailable`，不回傳任何訊息或不完整名單。私人討論串需屬於該討論串，或在父頻道具有 `Manage Threads`；公開討論串採用父頻道權限。`MessageStore.recent_messages` 是底層資料庫方法，未來 AI 功能必須使用 `message_reader`，不可直接呼叫它。
+
+目前沒有公開可見名單的斜線指令，也沒有 AI 檢索或回答功能。這些介面供後續功能在完成權限檢查後使用。
+
 ## 本機檢查
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest -v test_message_store
+.\.venv\Scripts\python.exe -m unittest -v test_channel_access test_message_store test_bot_events
 ```
