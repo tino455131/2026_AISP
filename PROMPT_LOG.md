@@ -97,3 +97,36 @@
 - 第一次執行時有一項測試因 Windows 無法刪除未關閉的 SQLite 檔而失敗；改用 `contextlib.closing` 關閉連線後通過。
 
 **我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-18 — 用真模型實測 `voice_stt`（Ping3227）
+
+**使用者原始要求：** 「下載吧」（同意下載模型實測），以及「好，補上」（把實測結果記進 prompt log）。
+
+**模型／工具：**
+
+- Claude Opus 5.5（`claude-opus-5-5`）協助執行測試與除錯
+- 辨識模型：`SoybeanMilk/faster-whisper-Breeze-ASR-25`（fp16，約 2.9 GB）
+- 硬體：RTX 5070 Ti Laptop（12 GB VRAM）
+- 測試音檔：Windows 內建 TTS 合成（Hanhan zh-TW、Huihui zh-CN），沒有錄任何人
+
+**結果：**
+
+| 測試 | 結果 |
+|---|---|
+| 台灣腔、中英夾雜，30 秒 | 5 句，只有 "main" 聽成 "man"；1.9 秒完成（約 15 倍速） |
+| 大陸腔，19 秒 | 3 句全對；模型直接輸出繁體，OpenCC 把「軟件」改成「軟體」；1.7 秒 |
+| `import_session` 兩軌（成員晚 3 秒開始） | 8 句依時間正確合併，寫入測試資料庫（暫存資料夾，未使用 `discord_bot/data/`）；用 `AuthorizedTranscriptReader` 讀回正常，沒有權限的人被拒；`journal_mode` 確認為 `wal` |
+| 加上 `glossary.example.txt` | "main" 認對了，但「分支」變成「分枝」：詞彙表會把相近的字帶偏 |
+
+另外：模型載入約 6 秒；第一次在這張 GPU 上執行要先暖機，約 15 秒，之後就是上表的速度。
+
+**失敗 → 修改 → 再測：**
+
+1. 第一次辨識只出現英文單字，中文全部不見。
+2. 檢查 tokenizer 編解碼與 `suppress_ids`，都正常。
+3. 發現問題在測試音檔：PowerShell 的 `PromptBuilder` 預設英文語系，TTS 直接跳過中文。
+4. 改成指定 `zh-TW`／`zh-CN` 重新產生音檔後再測，結果正常。程式碼不需修改。
+
+**據此調整：** 在 `glossary.example.txt` 加註：只放模型常聽錯的英文詞，並用真人錄音比較加與不加的差別。
+
+**尚未測試：** 真人聲音（口音、語速、噪音）、兩人同時說話、Discord 即時錄音、真實的 Discord 權限設定。
