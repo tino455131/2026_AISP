@@ -1,6 +1,7 @@
-// /record start | stop | status, the consent buttons, and what happens after stop.
+// /record start | stop | status, the consent buttons, what happens after stop, and the "查看" buttons.
 import {
   ActionRowBuilder,
+  AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
   MessageFlags,
@@ -8,7 +9,7 @@ import {
   SlashCommandBuilder,
 } from 'discord.js';
 
-import { fitDiscord, runIngest, runSummary } from './ingest.js';
+import { runIngest, runShow, runSummary } from './ingest.js';
 import { RecordingSession } from './recorder.js';
 
 export const recordCommand = new SlashCommandBuilder()
@@ -20,6 +21,9 @@ export const recordCommand = new SlashCommandBuilder()
 
 const REC_PREFIX = '[REC] ';
 const ephemeral = { flags: MessageFlags.Ephemeral };
+// Everything the bot posts in the channel is silent: an unread dot, but no sound or pop-up.
+const silent = { flags: MessageFlags.SuppressNotifications };
+const DISCORD_LIMIT = 2000;
 
 /** Who may start or stop a recording: the leader role, or server managers if none is set. */
 export function isLeader(member, leaderRoleId) {
@@ -32,6 +36,31 @@ export function parseConsentId(customId) {
   const match = /^consent:(agree|refuse):(.+)$/.exec(customId);
   return match ? { action: match[1], sessionId: match[2] } : null;
 }
+
+/** custom id of a "查看" button: view:<summary|transcript>:<session id> */
+export function parseViewId(customId) {
+  const match = /^view:(summary|transcript):(.+)$/.exec(customId);
+  return match ? { what: match[1], sessionId: match[2] } : null;
+}
+
+export function viewButtons(sessionId, { summary = true } = {}) {
+  const row = new ActionRowBuilder();
+  if (summary) {
+    row.addComponents(
+      new ButtonBuilder().setCustomId(`view:summary:${sessionId}`).setLabel('查看摘要').setStyle(ButtonStyle.Primary),
+    );
+  }
+  return row.addComponents(
+    new ButtonBuilder().setCustomId(`view:transcript:${sessionId}`).setLabel('查看逐字稿').setStyle(ButtonStyle.Secondary),
+  );
+}
+
+const VIEW_REFUSED = {
+  denied: '你目前沒有權限讀這個語音頻道的紀錄。',
+  unavailable: 'Discord 暫時無法確認你的權限，請稍後再試。',
+  not_found: '找不到這場錄音（可能已經被刪除）。',
+  no_summary: '這場錄音沒有摘要，可以改看逐字稿。',
+};
 
 function consentButtons(sessionId) {
   return new ActionRowBuilder().addComponents(
@@ -62,8 +91,10 @@ export class RecordController {
       if (sub === 'status') return this.#status(interaction);
     }
     if (interaction.isButton()) {
-      const parsed = parseConsentId(interaction.customId);
-      if (parsed) return this.#consent(interaction, parsed);
+      const consent = parseConsentId(interaction.customId);
+      if (consent) return this.#consent(interaction, consent);
+      const view = parseViewId(interaction.customId);
+      if (view) return this.#view(interaction, view);
     }
   }
 
@@ -103,6 +134,7 @@ export class RecordController {
         '- 隨時可以按「不同意／撤回同意」，你這次已錄的部分會被刪除。',
       ].join('\n'),
       components: [consentButtons(session.sessionId)],
+      ...silent,
     });
     return interaction.editReply(`已開始錄音（${session.sessionId}）。結束時請用 /record stop。`);
   }
@@ -133,7 +165,7 @@ export class RecordController {
     }
     await interaction.deferReply(ephemeral);
     await this.#finish(interaction.guildId, `⏹ <@${interaction.user.id}> 停止了錄音。`);
-    return interaction.editReply('已停止錄音，正在轉成文字，完成後會在語音頻道的聊天室通知。');
+    return interaction.editReply('已停止錄音，正在轉成文字。語音頻道聊天室裡那則訊息會隨進度更新（靜音，不會吵到大家）。');
   }
 
   async #status(interaction) {
@@ -156,37 +188,87 @@ export class RecordController {
     this.reminded.delete(session.sessionId);
     await this.#markRecording(session.channel.guild, false);
 
-    const say = (text) => session.channel.send(text).catch((e) => console.warn('[錄音] 無法發訊息：', e.message));
+    const post = (content, components = []) =>
+      session.channel.send({ content, components, ...silent }).catch((e) => {
+        console.warn('[錄音] 無法發訊息：', e.message);
+        return null;
+      });
     if (clips === 0) {
-      await say(`${notice}\n沒有錄到任何同意者的發言，不會產生逐字稿。`);
+      await post(`${notice}\n沒有錄到任何同意者的發言，不會產生逐字稿。`);
       return;
     }
-    await say(`${notice}\n共 ${clips} 段發言，正在轉成文字…`);
+    // One message, edited as the work goes on (edits notify nobody).
+    const status = await post(`${notice}\n共 ${clips} 段發言，正在轉成文字…`);
+    const update = (content, components = []) =>
+      status
+        ? status.edit({ content, components }).catch((e) => console.warn('[錄音] 無法更新訊息：', e.message))
+        : post(content, components);
+
     const { python, sttDir, repoRoot, botDb, keepAudio } = this.config;
     let ingested;
     try {
       ingested = await runIngest({ python, sttDir, sessionDir: session.dir, botDb, keepAudio });
-      const audioNote = keepAudio ? '錄音檔保留在主機上（測試模式 KEEP_AUDIO）。' : '錄音檔已刪除。';
-      await say(`✅ 逐字稿已存入（${ingested.saved_lines} 句，編號 \`${ingested.session_id}\`）。${audioNote}`);
     } catch (error) {
       console.error('[錄音] 轉文字失敗：', error);
-      await say(`⚠️ 轉文字失敗：${error.message}\n錄音檔保留在主機上（${session.sessionId}），可以修好後再處理。`);
+      await update(`${notice}\n⚠️ 轉文字失敗：${error.message}\n錄音檔保留在主機上（${session.sessionId}），可以修好後再處理。`);
       return;
     }
-    if (ingested.saved_lines === 0) return;
+    const audioNote = keepAudio ? '錄音檔保留在主機上（測試模式 KEEP_AUDIO）。' : '錄音檔已刪除。';
+    if (ingested.saved_lines === 0) {
+      await update(`${notice}\n沒有辨識出任何句子。${audioNote}`);
+      return;
+    }
+    await update(`${notice}\n已轉成 ${ingested.saved_lines} 句，正在整理摘要…`);
 
-    // Step 2: summary through the swappable meeting_ai interface. The channel it is
-    // posted in is the voice channel itself, so readers are the same as the transcript's.
+    // The summary goes through the swappable meeting_ai interface and is only stored;
+    // nobody gets it pushed to them. People open it with the buttons, one at a time.
+    let summaryNote = '摘要已存。';
+    let hasSummary = true;
     try {
-      const summary = await runSummary({ python, repoRoot, sessionId: ingested.session_id, sessionDir: session.dir, botDb });
-      await session.channel.send({
-        content: fitDiscord(`${summary.markdown}\n-# 摘要器：${summary.summarizer}`),
-        allowedMentions: { parse: [] }, // show names without pinging everyone
-      });
+      await runSummary({ python, repoRoot, sessionId: ingested.session_id, sessionDir: session.dir, botDb });
     } catch (error) {
       console.error('[錄音] 摘要失敗：', error);
-      await say(`⚠️ 逐字稿已存好，但摘要失敗：${error.message}`);
+      summaryNote = `⚠️ 摘要失敗：${error.message}`;
+      hasSummary = false;
     }
+    await update(
+      [
+        notice,
+        `✅ 會議紀錄完成：逐字稿 ${ingested.saved_lines} 句。${summaryNote}${audioNote}`,
+        '-# 看得到這個頻道的人都可以按下面的按鈕，內容只有按的人自己看得到。',
+      ].join('\n'),
+      [viewButtons(ingested.session_id, { summary: hasSummary })],
+    );
+  }
+
+  /** "查看摘要／逐字稿": read for the person who pressed, shown only to them. */
+  async #view(interaction, { what, sessionId }) {
+    await interaction.deferReply(ephemeral); // the permission check takes a few seconds
+    const { readerPython, repoRoot, botDb, token } = this.config;
+    let result;
+    try {
+      result = await runShow({
+        python: readerPython,
+        repoRoot,
+        botDb,
+        token,
+        sessionId,
+        memberId: interaction.user.id,
+        guildId: interaction.guildId,
+        what,
+      });
+    } catch (error) {
+      console.error('[查看] 讀取失敗：', error);
+      return interaction.editReply(`讀取失敗：${error.message}`);
+    }
+    if (!result.ok) return interaction.editReply(VIEW_REFUSED[result.reason] ?? `讀不到（${result.reason}）`);
+    if (result.text.length <= DISCORD_LIMIT) {
+      return interaction.editReply({ content: result.text, allowedMentions: { parse: [] } });
+    }
+    return interaction.editReply({
+      content: '內容比較長，放在附件裡（一樣只有你看得到）。',
+      files: [new AttachmentBuilder(Buffer.from(result.text, 'utf-8'), { name: `${what}-${sessionId}.md` })],
+    });
   }
 
   /** Remind people who join during a recording; stop when everyone has left. */
@@ -201,7 +283,10 @@ export class RecordController {
       if (session.consent.status(user.id) === 'pending' && !reminded.has(user.id)) {
         reminded.add(user.id);
         await session.channel
-          .send(`<@${user.id}> 這裡正在錄音，請在上方訊息按「同意錄音」或「不同意」；沒按就不會錄你。`)
+          .send({
+            content: `<@${user.id}> 這裡正在錄音，請在上方訊息按「同意錄音」或「不同意」；沒按就不會錄你。`,
+            ...silent,
+          })
           .catch(() => {});
       }
     }

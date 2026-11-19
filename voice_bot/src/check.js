@@ -44,6 +44,8 @@ function checkFile() {
 
   if (fs.existsSync(config.python)) ok('找到語音辨識的 Python 環境');
   else warn(`找不到 ${config.python}：錄完音會無法轉文字（見 voice_stt 的 README）`);
+  if (fs.existsSync(config.readerPython)) ok('找到 discord_bot 的 Python 環境（「查看摘要／逐字稿」按鈕用）');
+  else warn(`找不到 ${config.readerPython}：「查看」按鈕會無法使用（見 discord_bot 的 README）`);
 
   const summarizer = (process.env.MEETING_SUMMARIZER ?? '').trim() || 'simple';
   if (summarizer === 'claude') {

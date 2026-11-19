@@ -3,7 +3,8 @@
 在 Discord 語音頻道錄下**有按「同意」的人**的聲音，結束後自動：
 
 1. 交給 [`voice_stt`](../voice_stt/README.md) 轉成台灣繁體逐字稿，存進 bot 的資料庫（`discord_bot/data/messages.sqlite3`）
-2. 交給 [`meeting_ai`](../meeting_ai/README.md) 整理摘要（可替換的介面），貼回語音頻道的聊天室
+2. 交給 [`meeting_ai`](../meeting_ai/README.md) 整理摘要（可替換的介面），存進資料庫
+3. 在語音頻道聊天室留一則**靜音**訊息和「查看摘要」「查看逐字稿」按鈕：按的人才看得到內容，不會吵到其他人
 
 為什麼用 Node.js：Discord 從 2026 年 3 月起語音強制端對端加密（DAVE），目前只有
 `@discordjs/voice`（0.19.2 起）能正確「聽」別人說話；Python 的套件還不行。所以這支只負責錄音，
@@ -26,6 +27,7 @@
 4. **填 `.env`**：`DISCORD_TOKEN`、`DISCORD_GUILD_ID`，以及（選填）可以開始錄音的組長身分組 `LEADER_ROLE_ID`。
    token 等於密碼：只貼進 `.env`，不要貼到聊天室、Discord、Notion 或 AI 對話裡。弄丟了就到 Developer Portal 按 Reset Token 重新產生。
 5. 確認 `voice_stt/.venv` 已經裝好（見 voice_stt 的 README）；摘要也用同一個環境執行。
+   「查看」按鈕用 `discord_bot/.venv`（需要 discord.py，見 discord_bot 的 README）。
 6. **檢查設定**：
 
    ```bash
@@ -52,11 +54,15 @@ npm start
 | 「同意錄音」按鈕 | 任何人 | 從現在起錄你的聲音 |
 | 「不同意／撤回同意」按鈕 | 任何人 | 不錄你；如果之前同意過，**刪掉你這次已錄的部分** |
 | `/record status` | 任何人 | 看錄了多久、誰同意了 |
-| `/record stop` | 組長 | 停止錄音 → 轉文字 → 摘要 → 貼回頻道 |
+| `/record stop` | 組長 | 停止錄音 → 轉文字 → 摘要，頻道裡那則訊息會隨進度更新 |
+| 「查看摘要」「查看逐字稿」按鈕 | 看得到這個語音頻道的人（沒參加會議也可以） | 只有按的人看得到；約 5 秒，太長時改成附件 |
 
 - 沒按同意的人，聲音**不會被解碼或存檔**。
 - 中途加入的人會被提醒按按鈕。
 - 所有人都離開時會自動停止。
+- bot 在頻道發的訊息都是**靜音**的（只有未讀紅點，不會跳通知或發出聲音），結束時的進度只用一則訊息更新。
+- 「查看」按鈕是透過 AI 組的讀取介面 `AuthorizedTranscriptReader` 讀的，由 Discord 當下確認按的人能不能讀這個語音頻道（View Channel + Read Message History）。
+  為了確認權限，每按一次會用同一個 bot 帳號短暫連上 Discord（所以要幾秒）；這是測試用的做法，正式版由 AI 組在 bot 程式裡直接呼叫 reader。
 
 ## 檔案和資料在哪
 
@@ -66,7 +72,7 @@ npm start
 | 錄音資訊 | `voice_bot/recordings/<session>/manifest.json` | 誰同意、每段的時間、顯示名稱 |
 | 給人看的逐字稿 | `voice_bot/recordings/<session>/transcript.md` | 和資料庫內容相同 |
 | 逐字稿 | 資料庫 `voice_sessions`、`voice_lines` | AI 透過 `AuthorizedTranscriptReader` 讀，見 [docs/ai_memory_api.md](../docs/ai_memory_api.md) |
-| 摘要 | 資料庫 `voice_session_summaries`，並貼在語音頻道聊天室 | |
+| 摘要 | 資料庫 `voice_session_summaries` | 不貼在頻道，用「查看摘要」按鈕看 |
 
 `recordings/`、`.env` 都在 `.gitignore` 裡，不會被 commit。
 

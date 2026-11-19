@@ -1,6 +1,8 @@
 // After /record stop, two Python steps run (in voice_stt's virtual environment):
 //   1. voice_stt:  recording folder -> transcript in the bot database
-//   2. meeting_ai: transcript -> summary (stored too), returned as Discord-ready text
+//   2. meeting_ai: transcript -> summary, stored in the database
+// The "查看" buttons run a third one (in discord_bot's environment, it needs discord.py):
+//   meeting_ai.show_session reads for one person through the AI team's reader interface.
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 
@@ -10,11 +12,11 @@ export function parseResultLine(stdout) {
   return line ? JSON.parse(line.slice('RESULT '.length)) : null;
 }
 
-function runPython(python, args, cwd) {
+function runPython(python, args, cwd, extraEnv = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(python, args, {
       cwd,
-      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', ...extraEnv },
       windowsHide: true,
     });
     let stdout = '';
@@ -43,7 +45,13 @@ export function runSummary({ python, repoRoot, sessionId, sessionDir, botDb }) {
   return runPython(python, args, repoRoot);
 }
 
-/** Discord messages are limited to 2000 characters. */
-export function fitDiscord(text, limit = 1900) {
-  return text.length <= limit ? text : `${text.slice(0, limit)}…\n（摘要太長，完整內容已存進資料庫）`;
+/**
+ * Summary or transcript of one recording, for one person. Whether they may read it is
+ * decided by AuthorizedTranscriptReader asking Discord, not here.
+ * Resolves {ok: true, text} or {ok: false, reason: denied|unavailable|not_found|no_summary}.
+ */
+export function runShow({ python, repoRoot, botDb, token, sessionId, memberId, guildId, what }) {
+  const args = ['-m', 'meeting_ai.show_session', sessionId, '--member', memberId, '--guild-id', guildId];
+  args.push('--what', what, '--db', botDb);
+  return runPython(python, args, repoRoot, { DISCORD_TOKEN: token });
 }

@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url';
 export const BOT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPO_ROOT = path.resolve(BOT_ROOT, '..');
 
-const DEFAULT_PYTHON =
-  process.platform === 'win32' ? 'voice_stt/.venv/Scripts/python.exe' : 'voice_stt/.venv/bin/python';
+const venvPython = (dir) => (process.platform === 'win32' ? `${dir}/.venv/Scripts/python.exe` : `${dir}/.venv/bin/python`);
+const DEFAULT_PYTHON = venvPython('voice_stt');
+const DEFAULT_READER_PYTHON = venvPython('discord_bot'); // has discord.py, for the "查看" buttons
 
 const isSnowflake = (text) => /^\d{5,25}$/.test(text);
 
@@ -77,6 +78,7 @@ export function loadConfig(env = process.env) {
     // Testing only: keep the consenting people's clips after transcribing so they can be listened to.
     keepAudio: /^(1|true|yes)$/i.test((env.KEEP_AUDIO ?? '').trim()),
     python: fromRepo(env.STT_PYTHON, DEFAULT_PYTHON),
+    readerPython: fromRepo(env.READER_PYTHON, DEFAULT_READER_PYTHON),
     repoRoot: REPO_ROOT,
     sttDir: path.join(REPO_ROOT, 'voice_stt'),
     botDb: fromRepo(env.BOT_DB, 'discord_bot/data/messages.sqlite3'),

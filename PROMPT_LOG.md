@@ -307,3 +307,77 @@
 **尚未驗證：** 兩人以上對話時，合併後的發言順序。
 
 **我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-19 — 測試摘要與讀取介面；錄音訊息改靜音、摘要改用按鈕查看（Ping3227）
+
+**使用者原始要求：**
+
+> 另外我想先測試接口的功能，還有另一部分是關於對話的訊息能不能只發給進聊天室的對象就好
+>
+> 我想避免吵到大家
+
+AI 用選項確認後，使用者回答：
+
+> 摘要，以及給AI組的讀取介面
+>
+> 沒參加會議的人，但有在頻道的人還是能看到，其實摘要算是寫在data base 裡面，讀取是AI組的事情，不過我們這邊為了測試，請你幫我寫一下，在頻道的人都可以用按鈕call 摘要或...
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**產出：**
+
+- `meeting_ai/show_session.py`：替某個人讀一場錄音的摘要或逐字稿。
+  - 只透過 `AuthorizedTranscriptReader`（Discord 當下確認權限）讀。
+  - 回傳 `ok` 或拒絕原因：`denied`、`unavailable`、`not_found`、`no_summary`。
+  - 要在 `discord_bot/.venv` 執行。
+- `voice_bot/src/commands.js`：
+  - 頻道訊息全部靜音。
+  - 結束時只用一則訊息更新進度。
+  - 摘要不再貼出來。
+  - 新增「查看摘要」「查看逐字稿」按鈕，只有按的人看得到；內容太長時改成附件。
+- `voice_bot/src/ingest.js`：新增 `runShow`。
+- `voice_bot/src/config.js`、`check.js`：新增 `READER_PYTHON`，預設 `discord_bot/.venv`。
+- README（voice_bot、meeting_ai）、`docs/ai_memory_api.md`、DECISIONS。
+
+**檢查：**
+
+- 新增 6 項 Python 測試：
+  - 看得到頻道的人拿到摘要和名字
+  - 看不到的人什麼都拿不到，連名字都不查
+  - Discord 無法確認時不回傳
+  - 找不到會議或沒有摘要
+  - 摘要過時會標註
+  - 逐字稿標出可能聽錯的句子
+- Node 新增按鈕相關測試，共 13 項通過；meeting_ai 8 項、voice_stt 25 項、discord_bot 24 項也都通過。
+- 用真的 Discord 和資料庫裡的會議實測讀取介面：
+  - 使用者本人讀得到摘要和逐字稿
+  - 不在伺服器的人被拒（`denied`）
+  - 不存在的會議回報 `not_found`
+  - 每次約 6 秒
+
+**尚未驗證：** 在 Discord 裡實際按按鈕，以及靜音訊息的樣子。要等下一次錄音時確認。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-19 — 拿掉「草稿、待確認」字樣，推一版暫時分支（Ping3227）
+
+**使用者原始要求：**
+
+> （關於「兩份介面都標著草稿，待 Alex、claire 確認」）這個不用寫給他們看
+>
+> 先推一版吧，記得註明是tmp
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**產出：**
+
+- 拿掉 `docs/ai_memory_api.md`、`meeting_ai/README.md`、`voice_stt/README.md` 裡「草稿、待確認」的字樣。
+- `voice_bot/test/units.test.js` 的長度測試改用假的頻道 ID（原本誤用了真的語音頻道 ID）。
+- 推到 GitHub 的暫時分支 `ping-voice-tmp`，commit 訊息開頭標 `[tmp]`。沒有開 PR。
+
+**檢查：**
+
+- 推之前掃描這次要推的所有 commit：沒有 token、API key、真實的 Discord ID，也沒有錄音、資料庫或 `.env` 檔。
+- 五組測試全部通過。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］

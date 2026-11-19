@@ -6,10 +6,10 @@ import { test } from 'node:test';
 
 import { PermissionFlagsBits } from 'discord.js';
 
-import { isLeader, parseConsentId, recordCommand } from '../src/commands.js';
+import { isLeader, parseConsentId, parseViewId, recordCommand, viewButtons } from '../src/commands.js';
 import { INVITE_PERMISSIONS, botIdFromToken, inviteUrl, loadConfig, tokenProblems } from '../src/config.js';
 import { ConsentBook } from '../src/consent.js';
-import { fitDiscord, parseResultLine, runIngest } from '../src/ingest.js';
+import { parseResultLine, runIngest, runShow } from '../src/ingest.js';
 import { SessionManifest, makeSessionId } from '../src/manifest.js';
 import prism from 'prism-media';
 
@@ -194,13 +194,27 @@ test('consent button ids and the slash command shape', () => {
   assert.deepEqual(json.options.map((o) => o.name), ['start', 'stop', 'status']);
 });
 
+test('view buttons: summary and transcript, or transcript only when there is no summary', () => {
+  assert.deepEqual(parseViewId('view:summary:rec-1'), { what: 'summary', sessionId: 'rec-1' });
+  assert.deepEqual(parseViewId('view:transcript:rec-1'), { what: 'transcript', sessionId: 'rec-1' });
+  assert.equal(parseViewId('view:audio:rec-1'), null);
+  assert.equal(parseViewId('consent:agree:rec-1'), null);
+  const ids = (row) => row.toJSON().components.map((b) => b.custom_id);
+  assert.deepEqual(ids(viewButtons('rec-1')), ['view:summary:rec-1', 'view:transcript:rec-1']);
+  assert.deepEqual(ids(viewButtons('rec-1', { summary: false })), ['view:transcript:rec-1']);
+  // Discord limits a custom id to 100 characters; real session ids are about 40.
+  assert.ok(`view:transcript:${makeSessionId('1234567890123456789', new Date())}`.length <= 100);
+});
+
 test('python results are read from the RESULT line', async () => {
   assert.deepEqual(parseResultLine('loading...\nRESULT {"saved_lines": 3}\n'), { saved_lines: 3 });
   assert.equal(parseResultLine('no result'), null);
-  assert.equal(fitDiscord('短'), '短');
-  assert.match(fitDiscord('長'.repeat(3000)), /摘要太長/);
   await assert.rejects(
     runIngest({ python: 'no-such-python-xyz', sttDir: '.', sessionDir: '.', botDb: 'x' }),
+    /無法啟動 Python/,
+  );
+  await assert.rejects(
+    runShow({ python: 'no-such-python-xyz', repoRoot: '.', botDb: 'x', token: 't', sessionId: 's', memberId: '1', guildId: '2', what: 'summary' }),
     /無法啟動 Python/,
   );
 });
