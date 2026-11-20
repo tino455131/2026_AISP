@@ -246,6 +246,14 @@ export class RecordingSession {
     return this.manifest.save(this.consent);
   }
 
+  /** CONSENT_MODE=direct: record this person from now on unless they already said no. */
+  async include(userId, displayName) {
+    if (!this.consent.include(userId)) return false;
+    if (displayName) this.manifest.names[userId] = displayName;
+    await this.manifest.save(this.consent);
+    return true;
+  }
+
   /** Decline or withdraw. If they had agreed, delete everything recorded of them. */
   async refuse(userId) {
     const hadAgreed = this.consent.refuse(userId);

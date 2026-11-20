@@ -381,3 +381,265 @@ AI 用選項確認後，使用者回答：
 - 五組測試全部通過。
 
 **我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-20 — 用 Claude Code 做會議摘要（Ping3227）
+
+**使用者原始要求：**
+
+> 可不可以幫我做裡面的摘要處理，我指的是說，傳回claude code 程式裡面再用claude code 都方法call
+
+（承接前面的討論：想讓 app 在需要時呼叫已登入訂閱的 Claude Code，平常不消耗 token）
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版；查證文件用了 claude-code-guide 子代理
+
+**產出：**
+
+- `meeting_ai/claude_code.py`：`ClaudeCodeSummarizer`。
+  - 用 `claude -p --output-format json --json-schema` 取得固定格式的摘要；逐字稿從標準輸入送入。
+  - 安全設定：空資料夾執行、無工具、無 MCP、不存對話、權限詢問一律拒絕、不使用 API key。
+  - 「S2（皓元）」這種負責人寫法會整理成「S2」，貼到 Discord 才會變成名字。
+- `meeting_ai/interface.py`：`get_summarizer("claude-code")`。
+- `voice_bot`：
+  - `npm run check` 會確認找得到 `claude` 指令。
+  - 摘要器會送出文字時，同意訊息多一行說明。
+  - `.env` 設定 `MEETING_SUMMARIZER=claude-code`。
+- README（meeting_ai、voice_bot）、`.env.example`、DECISIONS。
+
+**檢查：**
+
+- meeting_ai 新增 7 項測試，用假的 `claude` 指令，不會真的送出：
+  - 輸入方式與安全參數
+  - 濾掉不存在的行號
+  - 負責人整理成代號
+  - 接受寫成文字的 JSON
+  - 錯誤處理
+  - 找不到 claude 指令
+  - 不會帶 API key
+- Node 13 項（含新的設定與同意訊息判斷）、voice_stt 25 項、discord_bot 24 項、讀取介面 6 項，全部通過。
+- 實際執行兩次（結果只印出來，沒有寫進資料庫）：
+  - 3 句的假會議：約 7 秒，有 `structured_output`。
+  - 2026-11-20 只有 ping 的那場：19 句、5.6 秒，回報「沒有明確決定或待辦」，沒有亂編。
+
+**尚未驗證：** 錄音結束後 bot 自動用 `claude-code` 產生摘要的完整流程，要等下一次錄音。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-20 — 有人進語音頻道就自動錄音（Ping3227）
+
+**使用者原始要求：**
+
+> 需求想要改成，有人進入語音通話時只要bot 上線就自動進行錄音狀態
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**產出：**
+
+- `voice_bot/src/commands.js`：
+  - 有人進語音頻道 3 秒後自動開始，bot 剛上線時也會檢查一次。
+  - 選人最多、允許、可加入、非 AFK、沒被組長手動停掉的頻道（`pickAutoChannel`）。
+  - 手動和自動開始共用同一段流程（`#begin`）。
+  - 自動開始卻沒錄到任何東西時，收回訊息、刪掉空資料夾。
+  - 錄完會再找其他有人的頻道。
+- `voice_bot/src/config.js`：`AUTO_RECORD`（預設開）、`AUTO_RECORD_CHANNELS`。
+- `voice_bot/src/index.js`、`check.js`：啟動時顯示並檢查自動錄音設定。
+- `.env.example`、README、DECISIONS。
+
+**檢查：** Node 15 項測試通過，新增：
+
+- 頻道選擇：人最多、AFK、被手動停掉、不能加入、限定頻道
+- 設定解析：預設開、可關掉、頻道清單格式
+
+**尚未驗證：** 在 Discord 實際進出語音頻道的自動開始與結束，要等使用者測試。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+
+## 2026-11-20 — 拒絕原因改用 spec 的錯誤代碼（Ping3227）
+
+**使用者原始要求：**
+
+> （回覆「錯誤原因要用英文代碼，例如 ACCESS_DENIED_USER、SOURCE_UNAVAILABLE_BOT、NOT_FOUND…改名很快」）ok
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**產出：**
+
+- `meeting_ai/show_session.py`：拒絕時回傳 `error_code`（`ACCESS_DENIED_USER`、`PERMISSION_UNVERIFIED`、`NOT_FOUND`）和給人看的 `message`。
+- `voice_bot/src/commands.js`：直接顯示 `message`，拿掉自己的訊息對照表。
+- 測試、`meeting_ai/README.md`、`voice_bot/src/ingest.js` 註解、DECISIONS。
+
+**檢查：** voice_bot 15 項、meeting_ai 15 項（1 項略過）、show_session 6 項測試通過；拒絕的三種情況都改成檢查新代碼。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+
+## 2026-11-20 — 確認 Claude Code 摘要在 bot 的環境跑得動；共同負責人也顯示名字（Ping3227）
+
+**使用者原始要求：**
+
+> 另外你先實作我剛剛提的claude code local AI摘要
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**產出：**
+
+- 確認 `claude-code` 摘要器（先前已完成）照 bot 的方式執行可以成功：
+  - 用 bot 的指令 `python -m meeting_ai.summarize_session`，`MEETING_SUMMARIZER=claude-code`。
+  - 測試資料是 `Demo_Script.md` 的 30 句對話，放在暫存資料庫，沒有用到真實錄音。
+  - 約 21 秒完成，得到 9 項決定、8 項待辦。
+  - 在一般終端機（沒有 Claude Code 桌面版的環境變數）也能用本機登入的帳號執行 `claude -p`。
+- `meeting_ai/interface.py`：待辦的負責人是「S1、S2」時，兩個標籤都換成名字（原本只換得了單一標籤）。
+- 測試：新增共同負責人的顯示測試（S12 不會被誤認成 S1）。
+
+**檢查：** meeting_ai 16 項（1 項略過）、show_session 6 項測試通過。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-20 — 用舊錄音測查看按鈕；摘要文字不寫行號（Ping3227）
+
+**使用者原始要求：**
+
+> 現在的摘要按鈕可以測試原先之前錄的檔案嗎，我需要setup甚麼嗎
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**產出：**
+
+- 查了資料庫：6 場舊錄音都有逐字稿，摘要都是當時的關鍵字版（`keyword-rules`）。
+- 只有使用者本人說話的那場（11/20 16:49）改用 `claude-code` 重新摘要，覆蓋舊摘要。有組員的那場沒動：錄音時沒告知逐字稿會交給 Claude。
+- `meeting_ai/claude.py` 的提示詞加兩條規則，版本改成 `claude-2`：
+  - 摘要文字裡不寫資料庫行號（原本會出現「第 72～90 行」）。
+  - 文字裡提到人時用名字，不用 S1 這種代號。
+
+**檢查：** meeting_ai 16 項測試通過（1 項略過）；同一場重跑後，摘要裡沒有行號和代號。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-20 — 4 人測試錄音改用 Claude Code 重做摘要（Ping3227）
+
+**使用者原始要求：**
+
+> 他們同意了，重做
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**產出：** 4 人那場（11/20 16:54）的摘要改用 `claude-code`（提示詞 `claude-2`）重做，覆蓋原本的關鍵字版。約 8 秒完成：0 項決定、2 項待辦，並且標明內容主要是測試收音和閒聊。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-20 — 語音頻道改成進來就錄（Ping3227）
+
+**使用者原始要求：**
+
+> agent進到語音聊天是不需要詢問同意，進來的人就是直接問
+> （追問選項後）直接錄，我講錯了
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**產出：**
+
+- `voice_bot/src/consent.js`：新增 `included` 狀態（沒按任何按鈕就被錄）。按過「不要錄我」的人不會再被自動加入。
+- `voice_bot/src/config.js`：`CONSENT_MODE`，可設 `direct`（預設）或 `ask`。
+- `voice_bot/src/commands.js`：
+  - 開始時把頻道裡的人都加入錄音，中途進來的人也加入並 @ 他告知。
+  - 按鈕改成「不要錄我」「繼續錄我」。
+  - `/record status` 改成列出正在錄的人。
+- `recorder.js`、`index.js`、`check.js`、`.env.example`、README、DECISIONS 跟著更新。
+
+**檢查：** voice_bot 17 項測試通過；新增「按了不要錄我、重新進來也不會再錄」和設定解析的測試。`npm run check` 顯示「錄音同意：direct」。
+
+**尚未驗證：** 在 Discord 實際進出語音頻道。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-20 — 摘要器做得更有彈性，方便換成 API 或其他來源（Ping3227）
+
+**使用者原始要求：**
+
+> 阿claude 摘要的部分希望你可以做的彈性一點，我之後有機會的話也許能換成api，也就是我可以很容易改成其他來源的
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**產出：**
+
+- `meeting_ai/llm.py`（新）：`LLMSummarizer`，提示詞、格式、解析和檢查共用，子類別只寫 `generate()`。
+- `meeting_ai/claude.py`、`claude_code.py`：改成它的子類別。Claude API 的呼叫方式沒有變。
+- `meeting_ai/interface.py`：`MEETING_SUMMARIZER` 支援「模組路徑:類別名稱」。
+- `voice_bot/src/config.js`、`commands.js`：錄音通知改用 `summaryRecipient`，可以用 `MEETING_SUMMARY_SENDS_TO` 指定名稱。
+- README、`.env.example`、測試、DECISIONS。
+
+**檢查：**
+
+- 測試全部通過：
+  - meeting_ai 18 項（1 項略過）。新增兩項：「新來源只寫 generate()」、「用模組路徑掛上」。
+  - show_session 6 項。
+  - voice_bot 17 項。
+- 用 Demo_Script 假會議實際跑一次 claude-code：11 項決定、9 項待辦。
+- Claude API 沒有實際呼叫（要付費）。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-21 — 合併語音 bot 和文字 bot；新增文字會議指令（Ping3227）
+
+**使用者原始要求：**
+
+> 我可以把語音bot 跟文字bot 合併嗎，原先文字bot先不要刪掉，然後文字bot 現在的功能我不確定完成到哪了，但像之前說的有一些功能要有，比如指令，開始文字會議
+> （選擇）同一個 bot 帳號；文字會議做基本可用版
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**產出：**
+
+- `voice_bot/src/meetings.js`（新）：`/meeting start|end|status`。進行中的會議記在檔案裡，重開 bot 不會遺失；結束時讀兩則 bot 訊息之間的發言，貼出紀錄。
+- `voice_bot/src/index.js`：註冊 `/record`、`/meeting`、`/ping`；啟動時提醒有沒有開 Message Content Intent。
+- `voice_bot/src/ingest.js`：Python 步驟可以從標準輸入接資料；新增 `runTextMeeting`。
+- `voice_bot/src/config.js`：邀請權限加上「讀取訊息歷史」「附加檔案」。
+- `meeting_ai/summarize_text_meeting.py`、`text_meeting_store.py`（新）：文字會議的摘要與存檔。
+- `team_bot/`（新）：`start.mjs` 一起啟動兩支程式；`text_logger.py` 用同一個帳號跑原本文字 bot 的記錄、不註冊指令；README 寫了設定步驟。
+- `discord_bot/` 沒有改。
+
+**檢查：**
+
+- voice_bot 18 項測試通過，新增「只取會議範圍內、人寫的、有文字的訊息，照時間排」的測試。
+- meeting_ai 21 項通過（1 項略過），新增文字會議的轉換、存檔、指令列測試。
+- 用假資料實際跑一次 Node → Python：摘要和存檔都正常。
+
+**尚未驗證：**
+
+- 在 Discord 實際用 `/meeting`。
+- 文字記錄用同一個帳號登入：要先在 Developer Portal 開權限。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-21 — ChatGPT 版摘要、可換的語音辨識、啟動參數、測試用 AI 單元（Ping3227）
+
+**使用者原始要求：**
+
+> 幫我寫一下claude code 摘要改成用chatgpt api 使用的版本，我現在還是使用原本的，事之後如果換到別人電腦上，希望方便快速能改，另外還有STT也是，摘要跟STT都幫我寫成容易換掉的獨立unit，我是指說這些功能都先不開啟，我在思考會是讓他開啟程式時，輸入args 決定用甚麼是不是比較好操作，另外拿取資料的接口，先假設在我local 端，拿資料庫這邊的系統你是寫好的嗎，寫好的話我在想你可能就先寫幾個簡單的東西，這是一個獨立的unit 可以拿sqlite 的東西，然後去做後面那邊AI要做的功能，你甚至可以自己先做完，我們標成測試，然後跟摘要那邊一樣先使用claude code 本身的做
+> 記得要參照spec
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**產出：**
+
+- `meeting_ai/openai_summarizer.py`（新）：ChatGPT API 摘要器（structured outputs），預設不開。
+- `voice_stt/stt/engines.py`、`openai_engine.py`（新）：可換的語音辨識引擎；`ingest_recording` 加 `--engine`。
+- `voice_bot/src/config.js`、`index.js`、`check.js`、`commands.js`：啟動參數（`argsToEnv`）、STT 的告知文字、檢查 OpenAI 設定。
+- `team_bot/start.mjs`：啟動參數轉給 voice_bot，`--help`。
+- `ai_demo/`（新，測試用）：`local_data.py`（唯讀讀 SQLite）、`tasks.py`、`ask.py`、`cli.py`、README、測試。
+- `meeting_ai/text_meeting_store.py`：多存 `speakers`。
+- 各 README、`.env.example`、DECISIONS。
+
+**檢查：**
+
+- 測試全部通過：
+  - voice_bot 19 項，新增啟動參數和 STT 告知的測試。
+  - meeting_ai 25 項（2 項略過），新增 OpenAI 摘要器的假 client 測試。
+  - voice_stt 30 項，新增引擎選擇和 OpenAI 引擎的假 client 測試。
+  - ai_demo 6 項。
+- 用 Demo_Script 假會議和 Claude Code 實際跑 ai_demo：
+  - 整理任務約 31 秒：正式任務 0 項、提案 12 項。原因是劇本大多沒講期限，或不是組長說的。
+  - 問「誰負責期中考出題」有答案和依據；問「期末考在哪一天」回 `NOT_FOUND`。
+- OpenAI 沒有實際呼叫。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］

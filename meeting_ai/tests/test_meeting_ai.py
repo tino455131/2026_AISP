@@ -5,6 +5,7 @@ import pytest
 
 from meeting_ai import MeetingLine, MeetingSummary, SummaryError, get_summarizer, render_markdown
 from meeting_ai.claude import ClaudeSummarizer, format_transcript
+from meeting_ai.llm import PROMPT_VERSION, SCHEMA, SYSTEM_PROMPT, LLMSummarizer
 from meeting_ai.simple import SimpleSummarizer
 from meeting_ai.summarize_session import load_transcript_store, summarize_session
 
@@ -42,12 +43,54 @@ def test_render_markdown_uses_mentions_for_owners():
     assert "- <@222>：我週五之前會把測試報告上傳到 Notion（週五之前）" in text
 
 
+def test_render_markdown_names_every_owner_of_a_shared_task():
+    from meeting_ai.interface import ActionItem
+
+    summary = MeetingSummary("", action_items=(ActionItem("檢查教室", "S1、S12", "", ()),))
+    text = render_markdown(summary, {"S1": "<@1>", "S12": "<@12>", "S2": "<@2>"})
+    assert "- <@1>、<@12>：檢查教室" in text  # S12 is not read as S1 + "2"
+
+
 def test_get_summarizer_picks_by_name(monkeypatch):
     monkeypatch.delenv("MEETING_SUMMARIZER", raising=False)
     assert isinstance(get_summarizer(), SimpleSummarizer)
     assert isinstance(get_summarizer("claude"), ClaudeSummarizer)
     with pytest.raises(ValueError):
         get_summarizer("gpt")
+
+
+def test_any_source_can_be_plugged_in_by_module_path():
+    assert isinstance(get_summarizer("meeting_ai.simple:SimpleSummarizer"), SimpleSummarizer)
+    with pytest.raises(ValueError, match="載入不了"):
+        get_summarizer("meeting_ai.nope:Missing")
+
+
+class EchoModel(LLMSummarizer):
+    """A pretend new source: only generate() is written; prompt, parsing and checks are shared."""
+
+    name = "echo"
+
+    def __init__(self):
+        self.seen = {}
+
+    def generate(self, system_prompt, transcript, schema):
+        self.seen = {"system": system_prompt, "transcript": transcript, "schema": schema}
+        reply = {
+            "summary": "討論進度",
+            "decisions": [],
+            "action_items": [{"task": "上傳測試報告", "owner": "S2（小明）", "due": "", "source_line_ids": [2, 99]}],
+        }
+        return "```json\n" + json.dumps(reply, ensure_ascii=False) + "\n```"
+
+
+def test_a_new_source_only_writes_generate():
+    model = EchoModel()
+    summary = model.summarize(LINES, {"S2": "小明"})
+    assert model.seen["system"] == SYSTEM_PROMPT and model.seen["schema"] == SCHEMA
+    assert "[2] S2（小明）：" in model.seen["transcript"]
+    assert summary.action_items[0].owner == "S2"  # trimmed so it becomes a mention
+    assert summary.action_items[0].source_line_ids == (2,)  # invented line 99 dropped
+    assert model.prompt_version == PROMPT_VERSION
 
 
 class FakeClaude:

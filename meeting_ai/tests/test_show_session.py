@@ -15,7 +15,7 @@ try:
 except ImportError:
     raise unittest.SkipTest("needs discord.py: run with discord_bot/.venv")
 
-from meeting_ai.show_session import read_for_member
+from meeting_ai.show_session import NO_SUMMARY, read_for_member, refused
 from channel_access import AccessUnavailable
 from transcript_reader import AuthorizedTranscriptReader
 from transcript_store import NewLine, TranscriptStore
@@ -88,22 +88,22 @@ class ShowSessionTests(unittest.IsolatedAsyncioTestCase):
     async def test_someone_who_cannot_see_the_channel_gets_nothing(self):
         self.save_summary()
         result = await read_for_member(self.reader, CAROL, "s1", "summary", self.names_of)
-        self.assertEqual(result, {"ok": False, "reason": "denied"})
+        self.assertEqual(result, refused("ACCESS_DENIED_USER"))
         self.assertFalse(self.asked_names)  # not even the speakers' names
 
     async def test_unconfirmed_access_returns_nothing(self):
         self.access.unavailable = True
         result = await read_for_member(self.reader, ALICE, "s1", "transcript", self.names_of)
-        self.assertEqual(result, {"ok": False, "reason": "unavailable"})
+        self.assertEqual(result, refused("PERMISSION_UNVERIFIED"))
 
     async def test_missing_session_or_summary(self):
         self.assertEqual(
             await read_for_member(self.reader, ALICE, "nope", "summary", self.names_of),
-            {"ok": False, "reason": "not_found"},
+            refused("NOT_FOUND"),
         )
         self.assertEqual(
             await read_for_member(self.reader, ALICE, "s1", "summary", self.names_of),
-            {"ok": False, "reason": "no_summary"},
+            {"ok": False, "error_code": "NOT_FOUND", "message": NO_SUMMARY},
         )
 
     async def test_summary_written_before_lines_changed_is_marked(self):

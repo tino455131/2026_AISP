@@ -11,7 +11,9 @@ Discord right now whether this person can read the voice channel's history. Whoe
 
 The permission check needs a live Discord connection, so this logs in as the recording
 bot (DISCORD_TOKEN, or voice_bot/.env) for a few seconds. Prints one line "RESULT {json}":
-{"ok": true, "what": ..., "text": ...} or {"ok": false, "reason": ...}.
+{"ok": true, "what": ..., "text": ...} or {"ok": false, "error_code": ..., "message": ...}.
+error_code follows spec.md (ACCESS_DENIED_USER, PERMISSION_UNVERIFIED, NOT_FOUND); message is
+the Traditional Chinese text shown to the person, and never names anything they cannot see.
 """
 
 from __future__ import annotations
@@ -63,19 +65,33 @@ def render_transcript(lines: list[TranscriptLine], names: dict[int, str]) -> str
     return "\n".join(out)
 
 
+# spec.md: programs decide by ErrorCode, people read the message. When we cannot tell why,
+# we only say the permission could not be confirmed.
+REFUSED = {
+    "ACCESS_DENIED_USER": "你沒有權限取得所要求的資訊。",
+    "PERMISSION_UNVERIFIED": "暫時無法確認你的權限，請稍後再試。",
+    "NOT_FOUND": "沒有找到符合條件的資料（這場錄音可能已經被刪除）。",
+}
+NO_SUMMARY = "這場錄音沒有摘要，可以改看逐字稿。"
+
+
+def refused(error_code: str, message: str | None = None) -> dict:
+    return {"ok": False, "error_code": error_code, "message": message or REFUSED[error_code]}
+
+
 async def read_for_member(reader, member_id: int, session_id: str, what: str, names_of: NamesOf) -> dict:
     """Read through the reader only; `names_of` is asked for display names after access is granted."""
     try:
         lines = await reader.transcript_for(member_id, session_id)
         view = await reader.summary_for(member_id, session_id) if what == "summary" else None
     except AccessDenied:
-        return {"ok": False, "reason": "denied"}
+        return refused("ACCESS_DENIED_USER")
     except AccessUnavailable:
-        return {"ok": False, "reason": "unavailable"}
+        return refused("PERMISSION_UNVERIFIED")
     except SessionNotFound:
-        return {"ok": False, "reason": "not_found"}
+        return refused("NOT_FOUND")
     if what == "summary" and view is None:
-        return {"ok": False, "reason": "no_summary"}
+        return refused("NOT_FOUND", NO_SUMMARY)  # the recording exists, its summary does not
 
     names = await names_of(sorted({line.speaker_id for line in lines}))
     text = render_summary(view, lines, names) if what == "summary" else render_transcript(lines, names)
@@ -110,7 +126,7 @@ async def run(session_id: str, member_id: int, guild_id: int, what: str, db: Pat
             if not ready.done():
                 if connection.done():
                     connection.result()  # raise why the connection failed
-                return {"ok": False, "reason": "unavailable"}
+                return refused("PERMISSION_UNVERIFIED")  # Discord never became ready
 
             async def names_of(ids: list[int]) -> dict[int, str]:
                 guild = client.get_guild(guild_id)
