@@ -206,6 +206,7 @@ def main(argv: list[str] | None = None) -> int:
         default=str(GLOSSARY) if GLOSSARY.is_file() else None,
         help="word list that helps the model (default: voice_bot/voice_stt/glossary.txt)",
     )
+    p.add_argument("--engine", help="local (default), openai, or module:Class; default: $STT_ENGINE")
     args = p.parse_args(argv)
 
     session_dir = Path(args.session_dir)
@@ -215,12 +216,12 @@ def main(argv: list[str] | None = None) -> int:
 
     # Import the heavy model code only when actually transcribing.
     from .cli import load_glossary
-    from .engine import Engine, EngineConfig
+    from .engines import make_transcriber
     from .postprocess import make_opencc_converter
 
     summary = ingest(
         session_dir,
-        Engine(EngineConfig(hotwords=load_glossary(args.glossary))),
+        make_transcriber(args.engine, hotwords=load_glossary(args.glossary)),
         PostProcessor(make_opencc_converter()),
         SQLiteStore(args.db),
         keep_audio=args.keep_audio,

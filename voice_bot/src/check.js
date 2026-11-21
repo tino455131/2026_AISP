@@ -1,6 +1,7 @@
 // npm run check: checks the project root .env without ever printing the token.
 // It asks Discord (and only Discord) whether the token works and whether the bot is in the server.
 // npm run check -- --offline skips that and only checks the file.
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 
 import { ENV_FILE, botIdFromToken, inviteUrl, loadConfig, loadRootEnv, tokenProblems } from './config.js';
@@ -17,6 +18,14 @@ const fail = (text) => {
   console.log(`❌ ${text}`);
   process.exit(1);
 };
+
+/** An OpenAI-based part needs the key in .env and the openai package in voice_stt's Python. */
+function checkOpenAI(config, label) {
+  if (!(process.env.OPENAI_API_KEY ?? '').trim()) return warn(`${label}，但 .env 沒有 OPENAI_API_KEY：會失敗`);
+  const probe = spawnSync(config.python, ['-c', 'import openai'], { encoding: 'utf8' });
+  if (probe.status !== 0) return warn(`${label}，但 voice_stt/.venv 沒有 openai 套件：執行 pip install openai`);
+  return ok(`${label}，OPENAI_API_KEY 已填（內容不顯示）`);
+}
 
 function checkFile() {
   if (fs.existsSync(ENV_FILE)) loadRootEnv();
@@ -35,6 +44,15 @@ function checkFile() {
   if (config.leaderRoleId) ok(`LEADER_ROLE_ID = ${config.leaderRoleId}`);
   else ok('LEADER_ROLE_ID 留空：有「管理伺服器」權限的人才能用 /record');
 
+  if (config.autoRecord) {
+    const where = config.autoRecordChannels ? `只在 ${config.autoRecordChannels.join('、')}` : '所有語音頻道';
+    ok(`自動錄音：開啟（${where}）；有人進語音頻道就開始。AUTO_RECORD=0 可以關掉`);
+  } else ok('自動錄音：關閉，要用 /record start 開始');
+  ok(
+    config.consentMode === 'direct'
+      ? '錄音同意：direct，頻道裡的人都會錄，可以按「不要錄我」退出（CONSENT_MODE=ask 改回按同意才錄）'
+      : '錄音同意：ask，只錄按了「同意錄音」的人',
+  );
   if (config.keepAudio) warn('KEEP_AUDIO 開著（測試模式）：錄音轉完不會刪除。測完請關掉，並刪掉 voice_bot/recordings 裡的檔案');
 
   if (fs.existsSync(config.python)) ok('找到語音辨識的 Python 環境');
@@ -53,6 +71,8 @@ function checkFile() {
   } else {
     ok(`摘要器：${summarizer}`);
   }
+  if (config.sttEngine === 'openai') checkOpenAI(config, '語音辨識：openai（錄音會傳到 OpenAI，每次都會花錢）');
+  else ok(`語音辨識：${config.sttEngine}`);
   return config;
 }
 

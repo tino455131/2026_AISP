@@ -1,9 +1,13 @@
-// /record start | stop | status, the consent buttons, what happens after stop, and the "查看" buttons.
+// /record start | stop | status, automatic recording when people join, the consent buttons,
+// what happens after stop, and the "查看" buttons.
+import { rm } from 'node:fs/promises';
+
 import {
   ActionRowBuilder,
   AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChannelType,
   MessageFlags,
   PermissionFlagsBits,
   SlashCommandBuilder,
@@ -31,6 +35,26 @@ export function isLeader(member, leaderRoleId) {
   return member.permissions.has(PermissionFlagsBits.ManageGuild);
 }
 
+// Wait this long after someone joins before starting, so a quick join-and-leave starts nothing.
+const AUTO_START_DELAY_MS = 3000;
+
+/**
+ * Which voice channel to record automatically: the one with the most people that is allowed,
+ * not the AFK channel, not stopped by hand, and joinable. Plain objects keep it testable:
+ * [{id, humans, joinable}] -> one of them or null.
+ */
+export function pickAutoChannel(channels, { allowed = null, afkChannelId = null, suppressed = new Set() } = {}) {
+  const ok = channels.filter(
+    (ch) =>
+      ch.humans > 0 &&
+      ch.joinable &&
+      ch.id !== afkChannelId &&
+      !suppressed.has(ch.id) &&
+      (!allowed || allowed.includes(ch.id)),
+  );
+  return ok.sort((a, b) => b.humans - a.humans)[0] ?? null;
+}
+
 /** custom id of a consent button: consent:<agree|refuse>:<session id> */
 export function parseConsentId(customId) {
   const match = /^consent:(agree|refuse):(.+)$/.exec(customId);
@@ -55,14 +79,14 @@ export function viewButtons(sessionId, { summary = true } = {}) {
   );
 }
 
-const VIEW_REFUSED = {
-  denied: '你目前沒有權限讀這個語音頻道的紀錄。',
-  unavailable: 'Discord 暫時無法確認你的權限，請稍後再試。',
-  not_found: '找不到這場錄音（可能已經被刪除）。',
-  no_summary: '這場錄音沒有摘要，可以改看逐字稿。',
-};
-
-function consentButtons(sessionId) {
+/** direct: "不要錄我" first (everyone is already recorded); ask: agree / refuse. Same custom ids. */
+export function consentButtons(sessionId, mode = 'ask') {
+  if (mode === 'direct') {
+    return new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`consent:refuse:${sessionId}`).setLabel('不要錄我').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`consent:agree:${sessionId}`).setLabel('繼續錄我').setStyle(ButtonStyle.Secondary),
+    );
+  }
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`consent:agree:${sessionId}`).setLabel('同意錄音').setStyle(ButtonStyle.Success),
     new ButtonBuilder()
@@ -81,6 +105,13 @@ export class RecordController {
     /** @type {Map<string, Set<string>>} session id -> users already reminded */
     this.reminded = new Map();
     this.originalNick = new Map();
+    /** @type {Set<string>} channels where a leader stopped by hand: no auto start until they empty */
+    this.suppressed = new Set();
+    /** @type {Set<string>} guilds where a recording is being started right now */
+    this.starting = new Set();
+    /** @type {Map<string, NodeJS.Timeout>} guild id -> pending automatic check */
+    this.scanTimers = new Map();
+    this.closing = false;
   }
 
   async handle(interaction) {
@@ -105,38 +136,75 @@ export class RecordController {
     if (!isLeader(member, this.config.leaderRoleId)) {
       return interaction.reply({ content: '只有組長可以開始錄音。', ...ephemeral });
     }
-    if (this.sessions.has(interaction.guildId)) {
+    if (this.sessions.has(interaction.guildId) || this.starting.has(interaction.guildId)) {
       return interaction.reply({ content: '這個伺服器已經在錄音了，請先 /record stop。', ...ephemeral });
     }
 
     await interaction.deferReply(ephemeral); // joining can take longer than Discord's 3 seconds
-    const session = new RecordingSession({
-      channel,
-      startedBy: member.id,
-      config: this.config,
-      onLost: (reason) => this.#finish(interaction.guildId, `⚠️ ${reason}，錄音已自動停止。`),
-    });
+    let session;
     try {
-      await session.start();
+      session = await this.#begin(channel, member.id);
     } catch (error) {
       return interaction.editReply(`開始錄音失敗：${error.message}`);
     }
-    this.sessions.set(interaction.guildId, session);
+    return interaction.editReply(`已開始錄音（${session.sessionId}）。結束時請用 /record stop。`);
+  }
+
+  /** Join `channel` and start recording. `startedBy` is null when it started automatically. */
+  async #begin(channel, startedBy) {
+    const guildId = channel.guild.id;
+    this.starting.add(guildId);
+    const session = new RecordingSession({
+      channel,
+      startedBy,
+      config: this.config,
+      onLost: (reason) => this.#finish(guildId, `⚠️ ${reason}，錄音已自動停止。`),
+    });
+    session.auto = startedBy === null;
+    session.botMessages = []; // taken back if an automatic recording ends with nothing recorded
+    try {
+      await session.start();
+    } catch (error) {
+      await rm(session.dir, { recursive: true, force: true }).catch(() => {});
+      throw error;
+    } finally {
+      this.starting.delete(guildId);
+    }
+    this.sessions.set(guildId, session);
     this.reminded.set(session.sessionId, new Set());
     await this.#markRecording(channel.guild, true);
+    const direct = this.config.consentMode === 'direct';
+    if (direct) {
+      for (const member of session.humansInChannel()) await session.include(member.id, member.displayName);
+    }
 
     const people = session.humansInChannel().map((m) => `<@${m.id}>`).join(' ');
-    await channel.send({
-      content: [
-        `🔴 **錄音中**：<@${member.id}> 開始了會議錄音。${people}`,
-        '- **只會錄有按「同意錄音」的人**；沒按或按不同意的人，聲音不會被保存。',
-        '- 錄音結束後會轉成文字存進 bot 的資料庫，之後只有看得到這個語音頻道的人能透過 bot 讀到。',
-        '- 隨時可以按「不同意／撤回同意」，你這次已錄的部分會被刪除。',
-      ].join('\n'),
-      components: [consentButtons(session.sessionId)],
-      ...silent,
-    });
-    return interaction.editReply(`已開始錄音（${session.sessionId}）。結束時請用 /record stop。`);
+    const who = startedBy ? `<@${startedBy}> 開始了會議錄音。` : '有人進入語音頻道，bot 自動開始會議錄音。';
+    const message = await channel
+      .send({
+        content: [
+          `🔴 **錄音中**：${who}${people}`,
+          direct
+            ? '- 這個語音頻道裡的人**都會被錄音**，之後進來的人也一樣。'
+            : '- **只會錄有按「同意錄音」的人**；沒按或按不同意的人，聲音不會被保存。',
+          '- 錄音結束後會轉成文字存進 bot 的資料庫，之後只有看得到這個語音頻道的人能透過 bot 讀到。',
+          ...(this.config.sttRecipient ? [`- 錄音會交給 ${this.config.sttRecipient} 轉成文字。`] : []),
+          ...(this.config.summaryRecipient
+            ? [
+                `- 逐字稿會交給 ${this.config.summaryRecipient} 整理成摘要${this.config.sttRecipient ? '' : '；錄音檔本身不會送出去'}。`,
+              ]
+            : []),
+          direct
+            ? '- 不想被錄可以隨時按「不要錄我」，你這次已錄的部分會被刪除。'
+            : '- 隨時可以按「不同意／撤回同意」，你這次已錄的部分會被刪除。',
+        ].join('\n'),
+        components: [consentButtons(session.sessionId, this.config.consentMode)],
+        ...silent,
+      })
+      .catch((e) => console.warn('[錄音] 無法發同意訊息：', e.message));
+    if (message) session.botMessages.push(message);
+    if (session.auto) console.log(`[自動錄音] 開始：${channel.name}（${session.sessionId}）`);
+    return session;
   }
 
   async #consent(interaction, { action, sessionId }) {
@@ -146,13 +214,19 @@ export class RecordController {
     }
     if (interaction.user.bot) return;
     await interaction.deferReply(ephemeral);
+    const direct = this.config.consentMode === 'direct';
     if (action === 'agree') {
       await session.agree(interaction.user.id, interaction.member?.displayName ?? interaction.user.username);
-      return interaction.editReply('✅ 已同意。接下來你在這個語音頻道的發言會被錄下；隨時可以撤回。');
+      return interaction.editReply(
+        direct ? '✅ 好，會繼續錄你。' : '✅ 已同意。接下來你在這個語音頻道的發言會被錄下；隨時可以撤回。',
+      );
     }
     const hadAgreed = await session.refuse(interaction.user.id);
+    if (!hadAgreed) return interaction.editReply('好的，這次不會錄你的聲音。');
     return interaction.editReply(
-      hadAgreed ? '已撤回同意，並刪除你這次已錄下的聲音。之後不會再錄你。' : '好的，這次不會錄你的聲音。',
+      direct
+        ? '已停止錄你，並刪除你這次已錄下的聲音。想恢復可以按「繼續錄我」。'
+        : '已撤回同意，並刪除你這次已錄下的聲音。之後不會再錄你。',
     );
   }
 
@@ -164,6 +238,8 @@ export class RecordController {
       return interaction.reply({ content: '目前沒有在錄音。', ...ephemeral });
     }
     await interaction.deferReply(ephemeral);
+    // Stopped by hand: don't start again in this channel until everyone has left it.
+    this.suppressed.add(this.sessions.get(interaction.guildId).channel.id);
     await this.#finish(interaction.guildId, `⏹ <@${interaction.user.id}> 停止了錄音。`);
     return interaction.editReply('已停止錄音，正在轉成文字。語音頻道聊天室裡那則訊息會隨進度更新（靜音，不會吵到大家）。');
   }
@@ -172,9 +248,9 @@ export class RecordController {
     const session = this.sessions.get(interaction.guildId);
     if (!session) return interaction.reply({ content: '目前沒有在錄音。', ...ephemeral });
     const minutes = Math.floor((Date.now() - session.startedAt.getTime()) / 60000);
-    const agreed = session.consent.agreedUsers().map((id) => `<@${id}>`).join('、') || '（還沒有人同意）';
+    const recorded = session.consent.recordedUsers().map((id) => `<@${id}>`).join('、') || '（目前沒有）';
     return interaction.reply({
-      content: `🔴 錄音中：<#${session.channel.id}>，已 ${minutes} 分鐘，${session.manifest.clips.length} 段發言。\n同意錄音的人：${agreed}`,
+      content: `🔴 錄音中：<#${session.channel.id}>，已 ${minutes} 分鐘，${session.manifest.clips.length} 段發言。\n正在錄的人：${recorded}`,
       ...ephemeral,
     });
   }
@@ -187,6 +263,7 @@ export class RecordController {
     this.sessions.delete(guildId);
     this.reminded.delete(session.sessionId);
     await this.#markRecording(session.channel.guild, false);
+    this.scan(session.channel.guild); // people may be waiting in another channel
 
     const post = (content, components = []) =>
       session.channel.send({ content, components, ...silent }).catch((e) => {
@@ -194,6 +271,13 @@ export class RecordController {
         return null;
       });
     if (clips === 0) {
+      // Nothing recorded: no folder is kept. An automatic start also takes its messages back,
+      // so someone dropping into a channel for a moment leaves no trace in the chat.
+      await rm(session.dir, { recursive: true, force: true }).catch(() => {});
+      if (session.auto) {
+        await Promise.allSettled(session.botMessages.map((m) => m.delete()));
+        return;
+      }
       await post(`${notice}\n沒有錄到任何同意者的發言，不會產生逐字稿。`);
       return;
     }
@@ -261,7 +345,8 @@ export class RecordController {
       console.error('[查看] 讀取失敗：', error);
       return interaction.editReply(`讀取失敗：${error.message}`);
     }
-    if (!result.ok) return interaction.editReply(VIEW_REFUSED[result.reason] ?? `讀不到（${result.reason}）`);
+    // Refusals carry spec.md's ErrorCode plus the message to show (written by show_session).
+    if (!result.ok) return interaction.editReply(result.message ?? `讀不到（${result.error_code}）`);
     if (result.text.length <= DISCORD_LIMIT) {
       return interaction.editReply({ content: result.text, allowedMentions: { parse: [] } });
     }
@@ -271,28 +356,68 @@ export class RecordController {
     });
   }
 
-  /** Remind people who join during a recording; stop when everyone has left. */
+  /** Remind people who join during a recording; stop when everyone has left; start when someone joins. */
   async onVoiceState(oldState, newState) {
-    const session = this.sessions.get(newState.guild.id);
-    if (!session || session.stopping) return;
-    const channelId = session.channel.id;
+    const guild = newState.guild;
     const user = newState.member?.user;
+    const left = oldState.channel;
+    if (left && this.suppressed.has(left.id) && ![...left.members.values()].some((m) => !m.user.bot)) {
+      this.suppressed.delete(left.id); // that channel is empty now: automatic recording may start there again
+    }
 
-    if (newState.channelId === channelId && oldState.channelId !== channelId && user && !user.bot) {
-      const reminded = this.reminded.get(session.sessionId);
-      if (session.consent.status(user.id) === 'pending' && !reminded.has(user.id)) {
-        reminded.add(user.id);
-        await session.channel
-          .send({
-            content: `<@${user.id}> 這裡正在錄音，請在上方訊息按「同意錄音」或「不同意」；沒按就不會錄你。`,
-            ...silent,
-          })
-          .catch(() => {});
+    const session = this.sessions.get(guild.id);
+    if (session && !session.stopping) {
+      const channelId = session.channel.id;
+      if (newState.channelId === channelId && oldState.channelId !== channelId && user && !user.bot) {
+        const reminded = this.reminded.get(session.sessionId);
+        const direct = this.config.consentMode === 'direct';
+        if (session.consent.status(user.id) === 'pending' && !reminded.has(user.id)) {
+          reminded.add(user.id);
+          if (direct) await session.include(user.id, newState.member.displayName); // recorded from now on
+          const reminder = await session.channel
+            .send({
+              content: direct
+                ? `<@${user.id}> 這裡正在錄音，你的聲音會被錄下；不想被錄請按上方訊息的「不要錄我」。`
+                : `<@${user.id}> 這裡正在錄音，請在上方訊息按「同意錄音」或「不同意」；沒按就不會錄你。`,
+              ...silent,
+            })
+            .catch(() => null);
+          if (reminder) session.botMessages.push(reminder);
+        }
+      }
+      if (oldState.channelId === channelId && session.humansInChannel().length === 0) {
+        await this.#finish(guild.id, '⏹ 大家都離開了，錄音自動停止。');
       }
     }
-    if (oldState.channelId === channelId && session.humansInChannel().length === 0) {
-      await this.#finish(newState.guild.id, '⏹ 大家都離開了，錄音自動停止。');
-    }
+    if (user && !user.bot && newState.channelId && newState.channelId !== oldState.channelId) this.scan(guild);
+  }
+
+  /** Start recording automatically (AUTO_RECORD) once someone has been in a voice channel for a moment. */
+  scan(guild) {
+    if (!this.config.autoRecord || this.closing) return;
+    clearTimeout(this.scanTimers.get(guild.id));
+    this.scanTimers.set(
+      guild.id,
+      setTimeout(() => {
+        this.scanTimers.delete(guild.id);
+        this.#autoStart(guild).catch((error) => console.warn('[自動錄音] 無法開始：', error.message));
+      }, AUTO_START_DELAY_MS),
+    );
+  }
+
+  async #autoStart(guild) {
+    if (this.closing || this.sessions.has(guild.id) || this.starting.has(guild.id)) return;
+    const voiceChannels = [...guild.channels.cache.values()].filter((ch) => ch.type === ChannelType.GuildVoice);
+    const picked = pickAutoChannel(
+      voiceChannels.map((ch) => ({
+        id: ch.id,
+        humans: [...ch.members.values()].filter((m) => !m.user.bot).length,
+        joinable: ch.joinable,
+        channel: ch,
+      })),
+      { allowed: this.config.autoRecordChannels, afkChannelId: guild.afkChannelId, suppressed: this.suppressed },
+    );
+    if (picked) await this.#begin(picked.channel, null);
   }
 
   /** Show "[REC]" in the bot's nickname while recording, so nobody misses it. */
@@ -313,6 +438,8 @@ export class RecordController {
   }
 
   async stopAll(reason) {
+    this.closing = true;
+    for (const timer of this.scanTimers.values()) clearTimeout(timer);
     await Promise.allSettled([...this.sessions.keys()].map((id) => this.#finish(id, `⏹ ${reason}，錄音停止。`)));
   }
 }

@@ -79,6 +79,20 @@ voice_bot 在 `/record stop` 後會自動執行，通常不用手動跑。它比
 
 另外有開 VAD（自動跳過靜音），並關掉「拿前文當提示」來避免錯誤一路滾下去。
 
+## 換語音辨識引擎
+
+預設是本機的 Breeze-ASR-25（`stt/engine.py`）。引擎是可以換的獨立單元，選法在 `stt/engines.py`：
+
+| 名稱 | 檔案 | 說明 |
+|---|---|---|
+| `local`（預設） | `engine.py` | 本機 GPU，錄音不離開這台電腦 |
+| `openai` | `openai_engine.py` | OpenAI 語音轉文字 API（預設 `whisper-1`）。**預設沒開**；要先 `pip install openai`，並在 `voice_bot/.env` 填 `OPENAI_API_KEY`。錄音會傳到 OpenAI，一個檔案最多 25 MB |
+| `模組路徑:類別名稱` | 自己寫 | 任何有 `transcribe(audio_path, on_segment=None) -> (segments, 秒數)` 的類別，建立時接受 `hotwords=` |
+
+選法（後面的會蓋過前面的）：`voice_bot/.env` 的 `STT_ENGINE` → voice_bot 啟動參數 `--stt` → 直接執行時的 `python -m stt.ingest_recording … --engine openai`。
+
+換引擎之後，後面的清理、合併、存資料庫都不用改；只要 segments 有時間和信心分數，「可能聽錯」的判斷就照常運作。
+
 ## 測試
 
 ```bash

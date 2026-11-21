@@ -110,6 +110,304 @@
 
 **Led by:** Ping3227
 
+## 2026-11-20 — 新增摘要器 `claude-code`：用主機上已登入的 Claude Code 整理會議（測試用）
+
+**What:**
+
+- `meeting_ai/claude_code.py` 新增 `ClaudeCodeSummarizer`，用 `MEETING_SUMMARIZER=claude-code` 選用。
+- 每次摘要執行一次 `claude -p`，提示和 JSON schema 與 `claude` 版相同，做完就結束。
+- 安全設定：
+  - 在空的暫存資料夾執行
+  - 關掉所有工具和 MCP
+  - 不把對話存到硬碟
+  - 執行時拿掉 `ANTHROPIC_API_KEY`，確保用的是登入帳號
+- 摘要器會把文字送到 Anthropic 時（`claude`、`claude-code`），錄音開始的同意訊息會多一行說明。
+- 程式由 AI（Claude）協助撰寫，見 `PROMPT_LOG.md`。
+
+**Why:**
+
+- 使用者想在不申請 API key 的情況下，用自己的 Claude Code 訂閱測試真正的 AI 摘要。
+- 沒有摘要要做時沒有常駐程式，不佔用額度。
+
+**Alternative rejected:**
+
+- 常駐的 Claude Code 加 Channels：還是預覽版，自己寫的程式只能用開發者測試模式接。
+- 透過 Claude 內的介面（mod）轉交：不是官方支援的串接方式。
+
+**Open questions:**
+
+- Anthropic 規定給別人用的產品要用 API key，所以這只用於測試，正式上線要改用 `claude`（API key）或 AI 組的版本。
+- 主機（皓元的電腦）要另外安裝並登入 Claude Code。
+- 逐字稿會送到 Anthropic：同意訊息已加註，但要請全組確認可以接受。
+
+**Led by:** Ping3227
+
+## 2026-11-20 — bot 在線上時，有人進語音頻道就自動開始錄音
+
+**What:**
+
+- voice_bot 新增自動錄音，預設開啟，`AUTO_RECORD=0` 可以關掉。
+- 有人進入語音頻道約 3 秒後，bot 自動加入並貼出同意按鈕，不必再等組長下 `/record start`。同意規則不變：**只錄按了同意的人**。
+- 一個伺服器同時只錄一個頻道，選人最多的那個；AFK 頻道不錄。`AUTO_RECORD_CHANNELS` 可以只指定某些頻道。
+- 自動開始、但最後什麼都沒錄到時，收回 bot 發的訊息，也刪掉空的錄音資料夾。
+- 組長手動 `/record stop` 後，那個頻道清空前不會再自動開始。
+- `/record start`、`/record stop` 照舊可用。
+- 程式由 AI（Claude）協助撰寫，見 `PROMPT_LOG.md`。
+
+**Why:**
+
+- 使用者希望開會時不用記得下指令，只要 bot 在線上就會進入錄音狀態。
+- 同意仍然一人一按，所以自動加入不會錄到沒同意的人。
+
+**Alternative rejected:**
+
+- 自動錄下頻道裡所有人：違反知情同意。
+- 只要有人進來就一直留紀錄：短暫進出也會在聊天室留下訊息，吵到大家。
+
+**Open questions:**
+
+- bot 會自動進入任何有人的語音頻道（包括閒聊用的），要請全組確認可以接受，或用 `AUTO_RECORD_CHANNELS` 限定開會用的頻道。
+- 改成自動之後，錄音開始的時間點變成「第一個人進來」，不再是「組長宣布開會」。
+
+**Led by:** Ping3227
+
+
+## 2026-11-20 — 「查看」按鈕的拒絕原因改用 spec 的英文錯誤代碼
+
+**Decision:**
+
+- `meeting_ai.show_session` 拒絕時回傳 `{"ok": false, "error_code", "message"}`，代碼照 `spec.md` v1.1 的 `ErrorCode`：
+  - 看不到語音頻道：`ACCESS_DENIED_USER`（原本叫 `denied`）
+  - Discord 暫時無法確認權限：`PERMISSION_UNVERIFIED`（原本叫 `unavailable`）
+  - 找不到錄音、或這場沒有摘要：`NOT_FOUND`（原本叫 `not_found`、`no_summary`），用 `message` 說明是哪一種
+- 給使用者看的繁體中文訊息統一由 `show_session` 產生，voice_bot 只負責顯示。
+- 程式由 AI（Claude）協助撰寫，見 `PROMPT_LOG.md`。
+
+**Why:**
+
+- `spec.md` 規定程式用英文 `ErrorCode` 判斷原因，繁體中文 `message` 給人看；全組用同一套代碼，AI 組讀取時才不用另外對照。
+
+**Alternative rejected:**
+
+- 保留舊的小寫原因名稱：和 spec 不一致。
+- 「沒有摘要」另外新增代碼：spec 的代碼表沒有這一項，而它本來就是「找不到資料」，用 `message` 區分就夠了。
+
+**Led by:** Ping3227
+
+## 2026-11-20 — 語音頻道改成進來就錄，保留「不要錄我」
+
+**Decision:**
+
+- voice_bot 新增 `CONSENT_MODE`，預設 `direct`：
+  - 語音頻道裡的人都會被錄，中途進來的人也一樣，bot 會在聊天室 @ 他告知。
+  - 不用再按「同意錄音」。
+- 按鈕改成「不要錄我」和「繼續錄我」：
+  - 按「不要錄我」：刪掉他這次已錄的部分，這次錄音不會再錄他，離開再回來也一樣。
+  - 按錯可以按「繼續錄我」恢復。
+- `CONSENT_MODE=ask` 可以改回原本「按了同意才錄」。
+- 程式由 AI（Claude）協助撰寫，見 `PROMPT_LOG.md`。
+
+**Why:**
+
+- 使用者決定 bot 進語音頻道不用逐一徵求同意，進來的人直接錄。
+
+**Alternative rejected:**
+
+- 完全拿掉退出的方法：不想被錄的人沒辦法刪掉自己的聲音。
+- 每個人進來都私訊或 @ 他、要他按同意：使用者不要這種逐一詢問。
+
+**Open questions:**
+
+- 全組要先知道並同意「語音頻道會被錄音」，可以在伺服器公告。也可以用 `AUTO_RECORD_CHANNELS` 只錄開會用的頻道，閒聊頻道不錄。
+- spec 沒有錄音同意的規則，見 spec 問題 V3。
+
+**Led by:** Ping3227
+
+## 2026-11-20 — 摘要器拆成「共用流程＋各來源一個方法」，換來源不用改程式
+
+**Decision:**
+
+- 新增 `meeting_ai/llm.py` 的 `LLMSummarizer`。這些都放在這裡共用：
+  - 提示詞、輸出格式（JSON schema）
+  - 逐字稿排法
+  - 回覆解析（JSON 字串、dict、包在程式碼區塊裡的都可以）
+  - 負責人代號修正、去掉不存在的行號
+- `claude`（API）和 `claude-code` 都改成它的子類別，各自只寫「怎麼呼叫模型」的 `generate()`，所以摘要格式完全一樣。
+- `MEETING_SUMMARIZER` 可以填「模組路徑:類別名稱」，掛上任何其他來源，不用改 meeting_ai 的檔案。
+- voice_bot 錄音通知裡「逐字稿會交給誰」不再寫死 Claude：
+  - simple、claude、claude-code 會自動判斷。
+  - 其他來源用 `MEETING_SUMMARY_SENDS_TO` 寫名稱，在這台電腦上跑的模型填 `none`。
+- 程式由 AI（Claude）協助撰寫，見 `PROMPT_LOG.md`。
+
+**Why:**
+
+- 使用者之後可能從 claude-code 換成 Claude API 或其他來源，希望很容易切換。
+
+**Alternative rejected:**
+
+- 每多一個來源就在 `get_summarizer()` 加一個判斷：每次都要改 meeting_ai 的檔案。
+- 每個來源各寫一份提示詞：摘要格式會不一致，讀取端要分別處理。
+
+**Led by:** Ping3227
+
+## 2026-11-21 — 語音 bot 和文字 bot 合併成同一個 bot 帳號；新增文字會議 /meeting
+
+**Decision:**
+
+- 合併成一個 bot 帳號，用語音 bot 的 token。內部還是兩支程式：
+  - Node（voice_bot）負責語音，並註冊所有指令。
+  - Python（`team_bot/text_logger.py`，沿用 discord_bot 的程式）負責記錄文字訊息，不註冊指令。
+  - 兩支寫同一個資料庫，用 `node team_bot/start.mjs` 一起啟動。
+- 原本的 `discord_bot/bot.py` 不改、不刪，還是可以用它自己的 token 單獨跑。
+- 新增 `/meeting start`、`/meeting end`、`/meeting status`（spec R05），只有組長能開始和結束：
+  - 結束時，直接向 Discord 讀兩則 bot 訊息之間的發言，bot 的訊息不算。
+  - 交給和語音會議同一個摘要器，在原頻道貼出會議紀錄。
+  - 紀錄存進 `text_meetings` 表，只存摘要和依據的訊息 ID。
+- 邀請連結多要「讀取訊息歷史」和「附加檔案」兩個權限。
+- 程式由 AI（Claude）協助撰寫，見 `PROMPT_LOG.md`。
+
+**Why:**
+
+- 使用者想在 Discord 裡只看到一個 bot，並且要有開始文字會議的指令。
+- 收 Discord 的語音只能用 Node.js（`@discordjs/voice`），文字 bot 是 Python，所以不改寫任何一邊，只讓兩支程式共用帳號。
+- `/meeting end` 直接向 Discord 讀那段訊息，不依賴文字記錄有沒有在跑，也符合 spec「結束後按邊界讀取可取得的成員訊息」。
+
+**Alternative rejected:**
+
+- 把文字 bot 改寫成 Node.js：要重寫別人的程式和測試。
+- 保留兩個 bot 帳號：Discord 裡會看到兩個 bot，而且要拿到文字 bot 的 token。
+
+**Open questions:**
+
+- 正式任務的建立、提醒、彙報（spec R06–R10）是 AI 組的部分，這裡的待辦只是候選。
+- 組長判斷還是用 Discord 身分組，spec 是由管理者設定（spec 問題 O1）。
+- 文字記錄會把伺服器的歷史訊息全部存進資料庫，和 spec「一般聊天不長期完整保存」不一致（spec 問題 S3）。
+
+**Led by:** Ping3227
+
+## 2026-11-21 — 摘要和語音辨識都做成可換的單元；ChatGPT 版本先寫好不開；新增測試用 AI 單元 ai_demo
+
+**Decision:**
+
+- 摘要新增 `openai`（ChatGPT API），和 Claude 共用提示詞、格式和檢查。預設不開，現在照舊用 `claude-code`。
+- 語音辨識改成可以換的引擎（`voice_stt/stt/engines.py`）：
+  - `local`（預設，本機 Breeze）
+  - `openai`（OpenAI 語音轉文字 API，預設不開）
+  - `模組路徑:類別名稱`
+- voice_bot 和 team_bot 啟動時可以加參數，只對這次啟動有效，會蓋過 `.env`：`--summarizer`、`--stt`、`--consent`、`--auto-record`。API key 只能放 `.env`。
+- 錄音通知會依設定寫出「錄音交給誰轉文字」「逐字稿交給誰整理」。用本機 STT 時才寫「錄音檔不會送出去」。
+- 新增 `ai_demo/`（標成測試用）：唯讀讀本機 SQLite，照 spec 做兩件事：
+  - 整理任務：AI 只能提案，由程式檢查四個條件才算正式任務，其餘是待確認提案。
+  - 問會議問題：只根據會議內容回答並附依據，找不到就回 `NOT_FOUND`。
+  - AI 預設用 Claude Code。
+- 文字會議的紀錄多存「代號對應的作者」（`speakers`），之後的 AI 功能才知道 S1、S2 是誰。
+- 程式由 AI（Claude）協助撰寫，見 `PROMPT_LOG.md`。
+
+**Why:**
+
+- 使用者之後可能把系統搬到別人的電腦，希望摘要和語音辨識能快速換來源；啟動參數比改設定檔方便。
+- AI 組的功能還沒出來，先有一個照 spec 的測試版，可以拿真資料試流程，也讓 AI 組參考。
+
+**Alternative rejected:**
+
+- 只用參數、不用 `.env`：每次啟動都要記得打一長串，API key 放在參數裡也不安全。
+- 讓 AI 自己決定是不是正式任務：spec 規定後端要驗證，AI 說是明確指派不能取代驗證。
+
+**Open questions:**
+
+- `ai_demo` 不檢查 Discord 權限，只能在開發者自己的電腦上用。正式版要由 AI 組接上讀取介面和確認流程（R15、R18、ConfirmationPolicy）。
+- OpenAI 的摘要和語音辨識都沒有實際呼叫過（沒有 API key，而且要付費）。
+
+**Led by:** Ping3227
+
+## 2026-11-21 — 新增 Discord 測試指令 /ai，讓 bot 直接呼叫 AI 單元
+
+**Decision:**
+
+- voice_bot 新增 `/ai tasks` 和 `/ai ask`，標成測試，背後呼叫 `ai_demo`。
+- 會議選項可以打字搜尋，只列出下指令的人看得到的頻道裡的會議。
+- 讀資料前，bot 先確認這個人看得到會議的頻道（檢視頻道＋讀取訊息歷史，spec R15）。判斷結果照 spec 的 `AccessDecision`：`allow`、`deny`、`unknown`，`unknown` 不放行。
+- 結果只回給下指令的人（ephemeral）。被拒的情況照 spec 回 `ACCESS_DENIED_USER`、`PERMISSION_UNVERIFIED`、`NOT_FOUND` 的訊息。
+- `ai_demo` 新增 `--bot` 模式：只印一行 `RESULT {json}`，Discord ID 一律用字串。
+- `ai_demo` 沒指定 AI 來源時，跟著目前的摘要器（simple 除外），所以 `--summarizer openai` 會一起套用到 `/ai`。
+- 程式由 AI（Claude）協助撰寫，見 `PROMPT_LOG.md`。
+
+**Why:**
+
+- 使用者想直接在 Discord 跟 bot 互動來測試 AI 單元，不用開終端機。
+- `ai_demo` 本身不檢查權限，所以由 bot 在讀資料前補上權限檢查，結果也只給本人看。
+
+**Alternative rejected:**
+
+- 結果貼在頻道裡：會把 AI 整理的內容公開，spec R16 要求跨來源的回答改用私訊。
+- 讓 `ai_demo` 自己連 Discord 查權限：每次要多登入一次（像查看按鈕那樣要幾秒），bot 本身已經有伺服器和成員的資料。
+
+**Led by:** Ping3227
+
+## 2026-11-21 — 測試版「要不要追蹤進度」；/ai 讀文字會議時當場向 Discord 讀原文
+
+**Decision:**
+
+- `/ai tasks` 有正式任務時，提供「追蹤進度」按鈕，標成測試。
+  - 只有下指令的組長能確認；確認的就是當時顯示的那幾項，按一次就失效。
+  - 負責人看得到來源頻道才私訊詢問，看不到就等組長決定（R18）。私訊失敗不改公開發布（R10）。
+  - 負責人用按鈕回報四種狀態之一，bot 再私訊通知看得到來源頻道的組長。
+- 資料存在 `demo_tasks`、`demo_inquiries`、`demo_progress_updates`。名稱和狀態值照 spec 的 Task、Inquiry、ProgressUpdate、Delivery。
+- `/ai` 遇到文字會議時，bot 當場向 Discord 讀原文交給 ai_demo，不另外保存。被 @ 的人也會有代號，所以認得出負責人。
+- 新增 `docs/database_schema.md`：資料庫架構圖，以及每個功能讀寫哪些表。
+- 程式由 AI（Claude）協助撰寫，見 `PROMPT_LOG.md`。
+
+**Why:**
+
+- 使用者想先有一個簡單的「詢問是否要追蹤進度」來測試流程。
+- 原本文字會議沒存原文，`/ai` 只能看摘要，組長的明確指派認不出來，永遠不會有正式任務。
+
+**Alternative rejected:**
+
+- 把會議原文存進資料庫：違反 spec「一般聊天不長期完整保存」，而且 spec 本來就要求按需讀取。
+- 組長按下去後讓 AI 重新整理一次：spec 規定確認的是固定的版本，不能讓模型改寫後直接執行。
+
+**Open questions:**
+
+- 正式版要有排程提醒、追問、可發訊息時段、取消和改期限（R09、R10）。這是 AI 組的部分。
+
+**Led by:** Ping3227
+
+## 2026-11-21 — 給 AI 組用假資料庫和讀取介面測試，不 push 真資料、不開 SQL API
+
+**Decision:**
+
+- 新增 `demo_data/`：用 `Demo_Script.md` 產生和真的 bot 資料庫同樣結構的假資料庫，以及不用連 Discord 的 `FakeAccess`。
+- AI 組的 tool 一律透過讀取介面拿資料（`AuthorizedTranscriptReader`、`AuthorizedMessageReader`）。開發時用 `FakeAccess`，正式時換成 `ChannelAccess`，其他程式不改。
+- 新增 `docs/ai_team_guide.md`：怎麼在自己電腦和 Discord 上測，以及對照 spec v1.1 的結果。
+- 對照 spec 後修正 6 處：
+  - 回報完成後負責人不能再改。
+  - 按鈕回報後詢問結案。
+  - 結果不明的私訊記 `delivery_unknown`。
+  - Bot 讀不到來源時回 `SOURCE_UNAVAILABLE_BOT`。
+  - 送出前再確認權限（AC23）。
+  - 私人討論串要確認成員（AC26）。
+- 程式由 AI（Claude）協助撰寫，見 `PROMPT_LOG.md`。
+
+**Why:**
+
+- 有人提議 push 含真實語音資料的 SQLite，再開一個可以直接下 SQL 的 API，讓 AI 組先測 tool。
+- repo 是公開的，push 真資料等於公開，而且撤不回來；組員同意的是錄音和摘要，不是公開。
+- 直接下 SQL 會跳過權限檢查（spec R15），也要把主機開放對外連線。
+- 最後所有程式都跑在同一台主機上，同一個 Python 介面就夠了。
+
+**Alternative rejected:**
+
+- push 真資料庫：隱私問題，而且 `.gitignore` 本來就刻意擋掉。
+- 開放可以下 SQL 的網路 API：跳過權限檢查；表結構一改，AI 組的程式就會壞。
+- 私下傳真資料：只有在需要真實辨識錯誤時才考慮，要所有說話的人同意，用完刪除，也不進 git。
+
+**Open questions:**
+
+- 指南「和 spec 不一樣」那一節要團隊決定：語音、文字記錄長期保存、組長怎麼設定、`team_id`、時區、`/meeting end` 的紀錄格式。
+
+**Led by:** Ping3227
+
 ## 2026-11-22 — 統一文字與語音的 SQLite 存取介面
 
 **What:** 將文字訊息、語音逐字稿及會議摘要的存取集中在根目錄的 [sqlite_api.py](sqlite_api.py)，由 `SQLiteStore` 提供統一命名的讀寫方法。面向 Discord 使用者的讀取仍由授權 reader 驗證頻道權限。方法、欄位及讀寫範例記錄在 [SQL_API_README.md](SQL_API_README.md)。

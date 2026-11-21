@@ -12,6 +12,8 @@
 
 voice_bot 會執行 `python -m meeting_ai.summarize_session <session_id>`（在 repo 根目錄、用 voice_stt 的 venv）。
 
+文字會議（`/meeting end`）也用同一個摘要器：voice_bot 把那段訊息以 JSON 交給 `python -m meeting_ai.summarize_text_meeting`，結果存進 `text_meetings` 表（`text_meeting_store.py`）。每則訊息是一行，作者一樣標成 S1、S2，所以兩種會議的摘要格式相同。
+
 ## 介面
 
 ```python
@@ -34,7 +36,7 @@ class MeetingSummarizer(Protocol):
   - `owner` 用 `S1` 這種代號，貼到 Discord 時會自動換成 @提及（不會發通知）
   - 負責人或期限不明時填空字串，不要猜
 
-## 內建的兩個實作
+## 內建的實作
 
 | 名稱 | 檔案 | 說明 |
 |---|---|---|
@@ -77,7 +79,15 @@ view = await reader.summary_for(member_id, session_id)       # 沒摘要 → Non
 text_bot/.venv/Scripts/python.exe -m meeting_ai.show_session <session_id> --member <Discord ID> --what summary
 ```
 
-回傳 `{"ok": true, "text": ...}`，或 `{"ok": false, "reason": "denied" | "unavailable" | "not_found" | "no_summary"}`。
+回傳 `{"ok": true, "text": ...}`，或 `{"ok": false, "error_code": ..., "message": ...}`。錯誤代碼照 `spec.md`：
+
+| `error_code` | 什麼時候 |
+|---|---|
+| `ACCESS_DENIED_USER` | 這個人看不到那個語音頻道 |
+| `PERMISSION_UNVERIFIED` | Discord 暫時無法確認權限（不會因此放行） |
+| `NOT_FOUND` | 找不到這場錄音，或這場還沒有摘要（`message` 會說是哪一種） |
+
+`message` 是給使用者看的繁體中文，不會透露對方看不到的頻道或內容。
 
 ## 測試
 

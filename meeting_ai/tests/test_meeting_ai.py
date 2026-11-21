@@ -43,6 +43,14 @@ def test_render_markdown_uses_mentions_for_owners():
     assert "- <@222>：我週五之前會把測試報告上傳到 Notion（週五之前）" in text
 
 
+def test_render_markdown_names_every_owner_of_a_shared_task():
+    from meeting_ai.interface import ActionItem
+
+    summary = MeetingSummary("", action_items=(ActionItem("檢查教室", "S1、S12", "", ()),))
+    text = render_markdown(summary, {"S1": "<@1>", "S12": "<@12>", "S2": "<@2>"})
+    assert "- <@1>、<@12>：檢查教室" in text  # S12 is not read as S1 + "2"
+
+
 def test_get_summarizer_picks_by_name(monkeypatch):
     monkeypatch.delenv("MEETING_SUMMARIZER", raising=False)
     assert isinstance(get_summarizer(), SimpleSummarizer)
