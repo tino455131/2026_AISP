@@ -1,0 +1,2 @@
+/SETUP_* text eol=lf
+/scripts/setup-common.sh text eol=lf

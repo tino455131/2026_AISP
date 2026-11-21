@@ -6,7 +6,7 @@ voice_bot 把摘要貼回語音頻道的聊天室，並存進 voice_session_summ
 任何摘要器只要符合 MeetingSummarizer（有 name、prompt_version、summarize()）就能替換。
 目前內建兩個：
 - "simple"：關鍵字規則，不用 API，給測試用（SimpleSummarizer）
-- "claude"：呼叫 Claude API（ClaudeSummarizer，需要 ANTHROPIC_API_KEY）
+- "openai"：呼叫 OpenAI API（OpenAISummarizer，需要 OPENAI_API_KEY）
 用環境變數 MEETING_SUMMARIZER 選擇，預設 simple。AI 組（Alex、claire）之後可以寫自己的版本換掉。
 """
 
@@ -99,11 +99,13 @@ def get_summarizer(kind: str | None = None) -> MeetingSummarizer:
         from .simple import SimpleSummarizer
 
         return SimpleSummarizer()
-    if kind == "claude":
-        from .claude import ClaudeSummarizer
+    if kind == "openai":
+        from .openai import OpenAISummarizer
 
-        return ClaudeSummarizer()
-    raise ValueError(f"不認得的摘要器 {kind!r}：請用 simple 或 claude")
+        return OpenAISummarizer()
+    if kind == "claude":
+        raise ValueError("MEETING_SUMMARIZER=claude 已移除：請改用 openai 並設定 OPENAI_API_KEY")
+    raise ValueError(f"不認得的摘要器 {kind!r}：請用 simple 或 openai")
 
 
 def render_markdown(summary: MeetingSummary, owner_display: Mapping[str, str]) -> str:

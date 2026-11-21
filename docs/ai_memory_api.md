@@ -1,11 +1,11 @@
 # 給 AI 組的讀取介面（v0.1）
 
 > 這份說明「AI 功能要怎麼拿到 Discord 的文字與語音資料」，以及「整理過的資料（例如會議摘要）存在哪、誰負責」。
-> 文字部分是皓元已完成的程式；語音部分由 Ping3227 實作（`discord_bot/transcript_*.py`）。
+> 文字部分是皓元已完成的程式；語音部分由 Ping3227 實作（`text_bot/transcript_*.py`）。
 
 ## 1. 三條規則
 
-1. **只能透過 reader 讀資料**，不要直接查 SQLite 或呼叫 `MessageStore`／`TranscriptStore` 的讀取方法。
+1. **面向使用者時只能透過 reader 讀資料**，不要直接查 SQLite 或呼叫根目錄 `sqlite_api.SQLiteStore` 的底層讀取方法。系統內部轉寫與摘要處理可用 `SQLiteStore` 寫入及整理資料。
    reader 每次都會當下問 Discord「這個人現在看得到這個頻道嗎」，這是私人頻道不外洩的唯一保證。
 2. **每次讀取都要帶「替誰讀」的 `member_id`**（通常是下指令或私訊 bot 的人）。
 3. **輸出前再檢查一次聽眾**：答案會貼到哪裡、誰會看到，就只能用「那些人全部都有權看」的資料（見第 5 節）。
@@ -16,6 +16,8 @@
 |---|---|---|
 | `AccessDenied` | 這個人沒有權限 | 不使用這個頻道的資料；必要時告訴使用者「你沒有權限看那個頻道」 |
 | `AccessUnavailable` | Discord 暫時無法確認 | 不要猜，也不要用快取；請使用者稍後再試 |
+
+底層儲存方法及欄位說明見 [SQL_API_README.md](../SQL_API_README.md)。
 
 ## 2. 文字訊息（皓元，已完成）
 
@@ -76,7 +78,7 @@ view = await reader.summary_for(member_id, session_id)                          
 
 ```py
 # AI 組產生摘要後存起來（先用 reader 讀過逐字稿，確認有權限）
-client.transcripts.save_summary(session_id, content, model="...", prompt_version="v1", created_at=now_iso)
+client.store.save_session_summary(session_id, content, model="...", prompt_version="v1", created_at=now_iso)
 
 # 之後讀
 view = await client.transcript_reader.summary_for(member_id, session_id)
@@ -86,7 +88,7 @@ else:
     view.summary.content
 ```
 
-**產生摘要的介面**：見 [meeting_ai/README.md](../meeting_ai/README.md)。`MeetingSummarizer` 只要實作 `summarize()` 就能替換。目前內建 `simple`（關鍵字，測試用）和 `claude` 兩個版本；錄音結束後由 voice_bot 自動呼叫並存進資料庫，**不主動貼出來**；語音頻道裡只留一則靜音訊息和「查看摘要」「查看逐字稿」按鈕，按的人透過 reader 讀、只有自己看得到。實際用 reader 讀的範例見 `meeting_ai/show_session.py`。
+**產生摘要的介面**：見 [meeting_ai/README.md](../meeting_ai/README.md)。`MeetingSummarizer` 只要實作 `summarize()` 就能替換。目前內建 `simple`（關鍵字，測試用）和 `openai` 兩個版本；錄音結束後由 voice_bot 自動呼叫並存進資料庫，**不主動貼出來**；語音頻道裡只留一則靜音訊息和「查看摘要」「查看逐字稿」按鈕，按的人透過 reader 讀、只有自己看得到。實際用 reader 讀的範例見 `meeting_ai/show_session.py`。
 
 保存與失效規則（已實作）：
 

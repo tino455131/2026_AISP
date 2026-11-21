@@ -1,6 +1,6 @@
 """SimpleSummarizer：不用任何 API 的「假 AI」，只靠關鍵字，讓整條流程可以先測試。
 
-它不懂語意，結果很粗糙；正式的摘要由 AI 組的實作（或 ClaudeSummarizer）取代。
+它不懂語意，結果很粗糙；正式的摘要由 AI 組的實作（或 OpenAISummarizer）取代。
 """
 
 from __future__ import annotations

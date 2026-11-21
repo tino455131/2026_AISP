@@ -1,24 +1,35 @@
 """The "查看" buttons read only through AuthorizedTranscriptReader.
 
-Needs discord.py, so run it with discord_bot's environment (from the repo root):
-    discord_bot/.venv/Scripts/python.exe -m unittest meeting_ai.tests.test_show_session -v
+Needs discord.py, so run it with text_bot's environment (from the repo root):
+    text_bot/.venv/Scripts/python.exe -m unittest meeting_ai.tests.test_show_session -v
 Under voice_stt's environment (no discord.py) it is skipped.
 """
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 try:
     import discord  # noqa: F401
 except ImportError:
-    raise unittest.SkipTest("needs discord.py: run with discord_bot/.venv")
+    raise unittest.SkipTest("needs discord.py: run with text_bot/.venv")
 
-from meeting_ai.show_session import read_for_member
+from meeting_ai.show_session import _token, read_for_member
 from channel_access import AccessUnavailable
 from transcript_reader import AuthorizedTranscriptReader
-from transcript_store import NewLine, TranscriptStore
+from sqlite_api import NewLine, SQLiteStore
+
+class VoiceTokenTests(unittest.TestCase):
+    def test_viewer_requires_voice_token(self) -> None:
+        with patch.dict(os.environ, {"TEXT_BOT_TOKEN": "fake-text"}, clear=True):
+            with self.assertRaisesRegex(SystemExit, "VOICE_BOT_TOKEN"):
+                _token()
+            with patch.dict(os.environ, {"VOICE_BOT_TOKEN": "fake-voice"}):
+                self.assertEqual(_token(), "fake-voice")
+
 
 VOICE = 301  # Alice (1) and Bob (2) can see it; Carol (3) cannot
 ALICE, BOB, CAROL = 1, 2, 3
@@ -44,9 +55,9 @@ class ShowSessionTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.store = TranscriptStore(Path(temp.name) / "messages.sqlite3")
-        self.store.start_session("s1", 10, VOICE, "2026-11-18T06:00:00+00:00")
-        self.store.add_lines(
+        self.store = SQLiteStore(Path(temp.name) / "messages.sqlite3")
+        self.store.create_voice_session("s1", 10, VOICE, "2026-11-18T06:00:00+00:00")
+        self.store.add_transcript_lines(
             "s1",
             [
                 line(ALICE, "2026-11-18T06:00:01+00:00", "我們決定下週一 merge"),
@@ -67,7 +78,7 @@ class ShowSessionTests(unittest.IsolatedAsyncioTestCase):
             "decisions": [{"text": "下週一 merge", "source_line_ids": [1]}],
             "action_items": [{"task": "寫測試", "owner": "S2", "due": "", "source_line_ids": [2]}],
         }
-        self.store.save_summary("s1", json.dumps(content), model="keyword-rules", prompt_version="v1",
+        self.store.save_session_summary("s1", json.dumps(content), model="keyword-rules", prompt_version="v1",
                                 created_at="2026-11-18T06:10:00+00:00")
 
     async def test_anyone_who_can_see_the_channel_gets_the_summary_with_names(self):
@@ -108,7 +119,7 @@ class ShowSessionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_summary_written_before_lines_changed_is_marked(self):
         self.save_summary()
-        self.store.add_lines("s1", [line(ALICE, "2026-11-18T06:00:09+00:00", "補一句")])
+        self.store.add_transcript_lines("s1", [line(ALICE, "2026-11-18T06:00:09+00:00", "補一句")])
         result = await read_for_member(self.reader, ALICE, "s1", "summary", self.names_of)
         self.assertIn("可能過時", result["text"])
 

@@ -94,14 +94,25 @@ test('manifest keeps ids as strings and forgets a withdrawn person', async () =>
 });
 
 test('config needs a token and a numeric server id', () => {
-  assert.throws(() => loadConfig({}), /DISCORD_TOKEN/);
-  assert.throws(() => loadConfig({ DISCORD_TOKEN: 'abc', DISCORD_GUILD_ID: 'my server' }), /DISCORD_GUILD_ID/);
-  const config = loadConfig({ DISCORD_TOKEN: 'abc', DISCORD_GUILD_ID: '123456789012345678' });
+  assert.throws(() => loadConfig({}), /VOICE_BOT_TOKEN/);
+  assert.throws(() => loadConfig({ VOICE_BOT_TOKEN: 'abc', DISCORD_GUILD_ID: 'my server' }), /DISCORD_GUILD_ID/);
+  const config = loadConfig({ VOICE_BOT_TOKEN: 'abc', DISCORD_GUILD_ID: '123456789012345678' });
   assert.equal(config.leaderRoleId, null);
   assert.equal(config.silenceMs, 800);
-  assert.match(config.botDb, /discord_bot[\\/]data[\\/]messages\.sqlite3$/);
+  assert.match(config.botDb, /[\\/]data[\\/]messages\.sqlite3$/);
   assert.equal(config.keepAudio, false);
-  assert.equal(loadConfig({ DISCORD_TOKEN: 'abc', DISCORD_GUILD_ID: '123456789012345678', KEEP_AUDIO: '1' }).keepAudio, true);
+  assert.throws(() => loadConfig({ TEXT_BOT_TOKEN: 'text-only', DISCORD_GUILD_ID: '123456789012345678' }), /VOICE_BOT_TOKEN/);
+  const executable = process.platform === 'win32' ? ['Scripts', 'python.exe'] : ['bin', 'python'];
+  assert.equal(config.sttDir, path.join(config.repoRoot, 'voice_bot', 'voice_stt'));
+  assert.equal(config.python, path.join(config.sttDir, '.venv', ...executable));
+  assert.equal(config.readerPython, path.join(config.repoRoot, 'text_bot', '.venv', ...executable));
+  const overridden = loadConfig({
+    VOICE_BOT_TOKEN: 'voice-token', TEXT_BOT_TOKEN: 'text-token',
+    DISCORD_GUILD_ID: '123456789012345678', BOT_DB: 'archive/shared.sqlite3',
+  });
+  assert.equal(overridden.token, 'voice-token');
+  assert.equal(overridden.botDb, path.join(overridden.repoRoot, 'archive', 'shared.sqlite3'));
+  assert.equal(loadConfig({ VOICE_BOT_TOKEN: 'abc', DISCORD_GUILD_ID: '123456789012345678', KEEP_AUDIO: '1' }).keepAudio, true);
 });
 
 test('packet loss is estimated from arrival times; pauses are not loss', () => {

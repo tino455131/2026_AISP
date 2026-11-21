@@ -4,9 +4,10 @@ from types import SimpleNamespace
 import pytest
 
 from meeting_ai import MeetingLine, MeetingSummary, SummaryError, get_summarizer, render_markdown
-from meeting_ai.claude import ClaudeSummarizer, format_transcript
+from meeting_ai.openai import OpenAISummarizer, format_transcript
 from meeting_ai.simple import SimpleSummarizer
-from meeting_ai.summarize_session import load_transcript_store, summarize_session
+from meeting_ai.summarize_session import summarize_session
+from sqlite_api import NewLine, SQLiteStore
 
 LINES = [
     MeetingLine(1, "S1", "2026-11-18T06:00:01+00:00", "大家好我們先看這週的進度"),
@@ -45,45 +46,87 @@ def test_render_markdown_uses_mentions_for_owners():
 def test_get_summarizer_picks_by_name(monkeypatch):
     monkeypatch.delenv("MEETING_SUMMARIZER", raising=False)
     assert isinstance(get_summarizer(), SimpleSummarizer)
-    assert isinstance(get_summarizer("claude"), ClaudeSummarizer)
+    assert isinstance(get_summarizer("openai"), OpenAISummarizer)
+    monkeypatch.setenv("MEETING_SUMMARIZER", "openai")
+    monkeypatch.setenv("MEETING_SUMMARY_MODEL", "gpt-6.2-sol")
+    assert get_summarizer().name == "gpt-6.2-sol"
+    with pytest.raises(ValueError, match="請改用 openai"):
+        get_summarizer("claude")
     with pytest.raises(ValueError):
         get_summarizer("gpt")
 
 
-class FakeClaude:
-    """Stands in for anthropic.Anthropic(): returns a fixed structured reply, no network."""
+class FakeOpenAI:
+    """Stands in for OpenAI(): returns a fixed Responses API reply, no network."""
 
-    def __init__(self, reply, stop_reason="end_turn"):
-        self.reply, self.stop_reason, self.calls = reply, stop_reason, []
-        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
+    def __init__(self, reply=None, status="completed", reason=None, text=None, refusal=False):
+        self.reply, self.status, self.reason, self.text, self.refusal = reply, status, reason, text, refusal
+        self.calls = []
+        self.responses = SimpleNamespace(create=self._create)
 
     def _create(self, **kwargs):
         self.calls.append(kwargs)
+        output_text = self.text if self.text is not None else json.dumps(self.reply)
+        content = [SimpleNamespace(type="refusal" if self.refusal else "output_text")]
         return SimpleNamespace(
-            stop_reason=self.stop_reason, content=[SimpleNamespace(type="text", text=json.dumps(self.reply))]
+            status=self.status,
+            incomplete_details=SimpleNamespace(reason=self.reason),
+            output=[SimpleNamespace(type="message", content=content)],
+            output_text=output_text,
         )
 
 
-def test_claude_summarizer_sends_transcript_and_parses_json():
-    fake = FakeClaude(
+def test_openai_summarizer_sends_transcript_and_parses_json(monkeypatch):
+    monkeypatch.delenv("MEETING_SUMMARY_MODEL", raising=False)
+    fake = FakeOpenAI(
         {
             "summary": "確認測試報告與 merge 時間",
             "decisions": [{"text": "下週一 merge", "source_line_ids": [3]}],
             "action_items": [{"task": "上傳測試報告", "owner": "S2", "due": "週五前", "source_line_ids": [2, 42]}],
         }
     )
-    summary = ClaudeSummarizer(client=fake).summarize(LINES, {"S1": "組長"})
+    summarizer = OpenAISummarizer(client=fake)
+    summary = summarizer.summarize(LINES, {"S1": "組長"})
 
     call = fake.calls[0]
-    assert call["output_config"]["format"]["type"] == "json_schema"
-    assert "[1] S1（組長）：大家好" in call["messages"][0]["content"]
-    assert "[4] S2：我來處理 token 的設定（可能聽錯）" in call["messages"][0]["content"]
+    assert call["model"] == summarizer.name == "gpt-6-luna"
+    assert summarizer.prompt_version == "openai-1"
+    assert call["text"]["format"]["type"] == "json_schema"
+    assert call["text"]["format"]["strict"] is True
+    assert call["text"]["format"]["schema"]["required"] == ["summary", "decisions", "action_items"]
+    assert call["store"] is False
+    assert "[1] S1（組長）：大家好" in call["input"]
+    assert "[4] S2：我來處理 token 的設定（可能聽錯）" in call["input"]
     assert summary.action_items[0].source_line_ids == (2,)  # 42 is not a real line
 
 
-def test_claude_refusal_raises():
+def test_openai_refusal_raises():
+    with pytest.raises(SummaryError, match="拒絕"):
+        OpenAISummarizer(client=FakeOpenAI(refusal=True)).summarize(LINES, {})
+
+
+def test_openai_incomplete_reply_raises():
+    with pytest.raises(SummaryError, match="截斷"):
+        OpenAISummarizer(client=FakeOpenAI(status="incomplete", reason="max_output_tokens")).summarize(LINES, {})
+
+
+@pytest.mark.parametrize("text", ["", "not JSON", "[]"])
+def test_openai_empty_or_invalid_reply_raises(text):
     with pytest.raises(SummaryError):
-        ClaudeSummarizer(client=FakeClaude({}, stop_reason="refusal")).summarize(LINES, {})
+        OpenAISummarizer(client=FakeOpenAI(text=text)).summarize(LINES, {})
+
+
+def test_openai_empty_transcript_does_not_call_api():
+    fake = FakeOpenAI()
+    summary = OpenAISummarizer(client=fake).summarize([], {})
+    assert summary.summary == "這場錄音沒有任何發言。"
+    assert fake.calls == []
+
+
+def test_openai_without_api_key_raises_clear_error(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    with pytest.raises(SummaryError, match="OPENAI_API_KEY"):
+        OpenAISummarizer().summarize(LINES, {})
 
 
 def test_format_transcript_without_names():
@@ -91,14 +134,13 @@ def test_format_transcript_without_names():
 
 
 def test_summarize_session_saves_summary_with_mentions(tmp_path):
-    module = load_transcript_store()
-    store = module.TranscriptStore(tmp_path / "messages.sqlite3")
-    store.start_session("rec-1", 10, 301, "2026-11-18T06:00:00+00:00")
-    store.add_lines(
+    store = SQLiteStore(tmp_path / "messages.sqlite3")
+    store.create_voice_session("rec-1", 10, 301, "2026-11-18T06:00:00+00:00")
+    store.add_transcript_lines(
         "rec-1",
         [
-            module.NewLine(111, "2026-11-18T06:00:01+00:00", "2026-11-18T06:00:03+00:00", "先看進度", "先看進度", 0.9),
-            module.NewLine(222, "2026-11-18T06:00:05+00:00", "2026-11-18T06:00:07+00:00",
+            NewLine(111, "2026-11-18T06:00:01+00:00", "2026-11-18T06:00:03+00:00", "先看進度", "先看進度", 0.9),
+            NewLine(222, "2026-11-18T06:00:05+00:00", "2026-11-18T06:00:07+00:00",
                            "我明天會把報告上傳", "我明天會把報告上傳", 0.9),
         ],
     )
@@ -107,6 +149,16 @@ def test_summarize_session_saves_summary_with_mentions(tmp_path):
 
     assert result["action_items"] == 1
     assert "<@222>：我明天會把報告上傳（明天）" in result["markdown"]
-    saved = store.summary("rec-1")
+    saved = store.get_session_summary("rec-1")
     assert saved.model == "keyword-rules" and saved.source_line_count == 2
     assert json.loads(saved.content)["action_items"][0]["owner"] == "S2"
+
+    openai_summarizer = OpenAISummarizer(
+        client=FakeOpenAI({"summary": "確認明天上傳報告", "decisions": [], "action_items": []}),
+        model="gpt-6-luna",
+    )
+    result = summarize_session(store, "rec-1", openai_summarizer)
+    saved = store.get_session_summary("rec-1")
+    assert result["summarizer"] == saved.model == "gpt-6-luna"
+    assert saved.prompt_version == "openai-1"
+    assert json.loads(saved.content)["summary"] == "確認明天上傳報告"

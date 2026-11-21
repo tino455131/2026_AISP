@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>SystemWorkflow｜Discord 團隊協作助手</title>
+  <style>
+    :root {
+      --ink: #172334;
+      --muted: #536276;
+      --line: #d8e0ea;
+      --paper: #f5f7fb;
+      --white: #fff;
+      --sql: #7c3aed;
+      --text: #2563eb;
+      --voice: #0d9488;
+      --ai: #c15a16;
+      --future: #717b8d;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+      line-height: 1.6;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    a { color: #1555af; }
+    a:focus-visible, .skip:focus-visible { outline: 3px solid #f59e0b; outline-offset: 3px; }
+    .skip { position: absolute; left: -9999px; top: 0; background: white; padding: .5rem; z-index: 2; }
+    .skip:focus { left: 1rem; }
+    .shell { max-width: 1240px; margin: auto; padding: 28px 24px 64px; }
+    header { margin-bottom: 24px; }
+    .eyebrow { color: #365376; font-size: .82rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { font-size: clamp(2rem, 4vw, 3rem); line-height: 1.2; margin: .35rem 0 .6rem; }
+    h2 { font-size: 1.55rem; line-height: 1.3; margin: 0 0 .5rem; }
+    h3 { font-size: 1.06rem; margin: 0 0 .35rem; }
+    p { margin: .45rem 0 1rem; }
+    .lead { color: var(--muted); max-width: 82ch; font-size: 1.05rem; }
+    .meta { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+    .pill { display: inline-flex; align-items: center; gap: .4rem; border: 1px solid var(--line); background: white; color: #34445a; border-radius: 999px; padding: .2rem .72rem; font-size: .8rem; font-weight: 700; }
+    .pill::before { content: ""; width: .45rem; height: .45rem; border-radius: 50%; background: #16a34a; }
+    .pill.future::before { background: var(--future); }
+    nav { display: flex; flex-wrap: wrap; gap: .55rem; margin: 22px 0; }
+    nav a { color: #213853; text-decoration: none; border: 1px solid var(--line); background: white; border-radius: 10px; padding: .46rem .8rem; font-weight: 700; }
+    nav a:hover { border-color: #8baed6; background: #eef5ff; }
+    .panel { background: var(--white); border: 1px solid var(--line); border-radius: 18px; padding: 25px; box-shadow: 0 8px 24px rgba(35, 55, 85, .045); margin: 20px 0; }
+    .system { border-top: 6px solid var(--accent); scroll-margin-top: 18px; }
+    .system.sql { --accent: var(--sql); }
+    .system.text { --accent: var(--text); }
+    .system.voice { --accent: var(--voice); }
+    .system.ai { --accent: var(--ai); }
+    .system-head { display: flex; align-items: center; gap: .75rem; }
+    .number { width: 2rem; height: 2rem; display: inline-grid; place-items: center; border-radius: 9px; background: var(--accent); color: white; font-weight: 900; flex: none; }
+    .section-intro { color: var(--muted); margin-bottom: 1.3rem; }
+    .flow-label { color: #31435b; font-weight: 800; font-size: .88rem; margin: 1.5rem 0 .6rem; }
+    .flow { display: flex; align-items: stretch; gap: 25px; list-style: none; padding: 4px 1px 12px; margin: 0; overflow-x: auto; }
+    .flow li { position: relative; flex: 1 0 185px; min-width: 185px; max-width: 300px; background: #fbfcfe; border: 1px solid #d9e2ed; border-radius: 13px; padding: 14px 14px 13px; }
+    .flow li:not(:last-child)::after { content: "→"; position: absolute; right: -24px; top: 43%; font-size: 1.55rem; line-height: 1; font-weight: 900; color: var(--accent); }
+    .flow li.destination { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, white); }
+    .flow li.future { border-style: dashed; color: #526075; background: #fafbfc; }
+    .flow strong { display: block; line-height: 1.35; margin-bottom: .28rem; }
+    .flow small { display: block; color: var(--muted); font-size: .84rem; }
+    .flow code, .file { display: inline-block; margin-top: .55rem; color: #34455c; background: #eef2f7; border-radius: 5px; padding: .13rem .35rem; font-size: .76rem; overflow-wrap: anywhere; }
+    .flow .file { text-decoration: none; }
+    code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .note { border-left: 4px solid var(--accent); padding: .55rem .9rem; background: color-mix(in srgb, var(--accent) 6%, white); margin-top: 1rem; font-size: .92rem; }
+    .diagram { margin: 1.1rem 0 .25rem; border: 1px solid var(--line); background: #fbfdff; border-radius: 14px; overflow-x: auto; }
+    .diagram svg { display: block; width: 100%; min-width: 770px; height: auto; }
+    .diagram text { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: var(--ink); }
+    .diagram .link-label { font-size: 14px; fill: #42536b; font-weight: 700; }
+    .diagram .box-title { font-size: 22px; font-weight: 800; }
+    .diagram .box-sub { font-size: 14px; fill: #48586d; }
+    .overview-caption { color: var(--muted); font-size: .9rem; }
+    .data-list { display: flex; flex-wrap: wrap; gap: .5rem; padding: 0; margin: .8rem 0 0; list-style: none; }
+    .data-list li { background: #f4efff; color: #4e2b84; border-radius: 8px; padding: .35rem .55rem; font: 700 .85rem ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .scope { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; }
+    .scope > div { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+    .scope p { margin-bottom: 0; color: var(--muted); }
+    footer { color: var(--muted); font-size: .87rem; margin-top: 25px; }
+    @media (max-width: 680px) {
+      .shell { padding: 18px 14px 45px; }
+      .panel { padding: 18px 15px; }
+      .scope { grid-template-columns: 1fr; }
+      .flow { flex-direction: column; overflow: visible; gap: 25px; }
+      .flow li { max-width: none; min-width: 0; flex: auto; }
+      .flow li:not(:last-child)::after { content: "↓"; right: auto; left: 48%; top: auto; bottom: -24px; }
+    }
+    @media print {
+      :root { background: white; }
+      .shell { max-width: none; padding: 0; }
+      .panel { box-shadow: none; break-inside: avoid; }
+      nav, .skip { display: none; }
+      .flow { overflow: visible; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">跳到流程圖</a>
+  <div class="shell">
+    <header>
+      <div class="eyebrow">2026 AISP · SystemWorkflow</div>
+      <h1>Discord 團隊協作助手：系統流程圖</h1>
+      <p class="lead">依目前 <code>ping-voice-tmp</code> 分支的程式碼，將系統分成 SQL、文字 Bot、語音 Bot、AI 四區。實線代表已有程式碼的路徑；灰色虛線卡片代表尚未接上的產品功能。這張圖描述程式流程，不代表已完成 Discord 實機驗收。</p>
+      <div class="meta"><span class="pill">程式碼已有</span><span class="pill future">尚未接上</span><span>最後核對：2026-11-21</span></div>
+    </header>
+
+    <nav aria-label="跳到系統區域">
+      <a href="#overview">總覽</a><a href="#sql">SQL</a><a href="#text-bot">文字 Bot</a><a href="#voice-bot">語音 Bot</a><a href="#ai">AI</a>
+    </nav>
+
+    <main id="main">
+      <section class="panel" id="overview" aria-labelledby="overview-title">
+        <h2 id="overview-title">四個系統如何連在一起</h2>
+        <p class="section-intro">文字 Bot 與語音 Bot 蒐集資料；SQL 保存文字、逐字稿與摘要；AI 讀取逐字稿產生摘要。使用者要看保存內容時，讀取路徑會重新向 Discord 核對權限。</p>
+        <figure class="diagram">
+          <svg viewBox="0 0 1120 470" role="img" aria-labelledby="diagram-title diagram-description">
+            <title id="diagram-title">SQL、文字 Bot、語音 Bot、AI 四系統資料流</title>
+            <desc id="diagram-description">文字 Bot 和語音 Bot 寫入 SQL。語音 Bot 呼叫 AI 摘要；AI 從 SQL 讀取逐字稿並將摘要寫回。使用者查看資料時透過授權 reader 從 SQL 讀出。</desc>
+            <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#51647d"/></marker></defs>
+            <path d="M 324 112 L 448 184" fill="none" stroke="#51647d" stroke-width="3" marker-end="url(#arrow)"/>
+            <text class="link-label" x="335" y="126">文字訊息</text>
+            <path d="M 324 323 L 448 252" fill="none" stroke="#51647d" stroke-width="3" marker-end="url(#arrow)"/>
+            <text class="link-label" x="335" y="319">逐字稿</text>
+            <path d="M 686 190 L 822 190" fill="none" stroke="#51647d" stroke-width="3" marker-end="url(#arrow)"/>
+            <text class="link-label" x="701" y="177">系統讀取逐字稿</text>
+            <path d="M 822 254 L 686 254" fill="none" stroke="#51647d" stroke-width="3" marker-end="url(#arrow)"/>
+            <text class="link-label" x="711" y="278">寫回摘要</text>
+            <path d="M 324 365 C 502 458, 699 456, 822 326" fill="none" stroke="#51647d" stroke-width="3" marker-end="url(#arrow)"/>
+            <text class="link-label" x="476" y="429">停止錄音後觸發摘要</text>
+            <rect x="34" y="48" width="290" height="126" rx="18" fill="#eaf2ff" stroke="#2563eb" stroke-width="2"/>
+            <text class="box-title" x="57" y="91">文字 Bot</text><text class="box-sub" x="57" y="119">歷史匯入 · 新訊息 · 編輯刪除</text><text class="box-sub" x="57" y="144">Python / text_bot</text>
+            <rect x="34" y="257" width="290" height="126" rx="18" fill="#e6f7f4" stroke="#0d9488" stroke-width="2"/>
+            <text class="box-title" x="57" y="300">語音 Bot</text><text class="box-sub" x="57" y="328">同意錄音 · 本機轉文字</text><text class="box-sub" x="57" y="353">Node.js / voice_bot</text>
+            <rect x="448" y="155" width="238" height="126" rx="18" fill="#f2ebff" stroke="#7c3aed" stroke-width="2"/>
+            <text class="box-title" x="471" y="198">SQL</text><text class="box-sub" x="471" y="226">sqlite_api.py → messages.sqlite3</text><text class="box-sub" x="471" y="251">文字 · 逐字稿 · 摘要</text>
+            <rect x="822" y="155" width="264" height="176" rx="18" fill="#fff2e9" stroke="#c15a16" stroke-width="2"/>
+            <text class="box-title" x="845" y="198">AI</text><text class="box-sub" x="845" y="226">會議摘要（simple / OpenAI）</text><text class="box-sub" x="845" y="252">依來源行號產生決定與待辦</text><text class="box-sub" x="845" y="288">組長確認與委派：尚未接上</text>
+          </svg>
+        </figure>
+        <p class="overview-caption">箭頭表示資料或呼叫方向。讀取 SQL 前的權限檢查、錄音同意條件與失敗路徑在下方各系統詳圖中展開。</p>
+      </section>
+
+      <section class="panel system sql" id="sql" aria-labelledby="sql-title">
+        <div class="system-head"><span class="number">1</span><h2 id="sql-title">SQL｜共同資料層</h2></div>
+        <p class="section-intro">文字 Bot、語音轉寫與 AI 摘要都使用專案根目錄的 <a href="../sqlite_api.py"><code>sqlite_api.py</code></a>；單一 <code>SQLiteStore</code> 預設存取根目錄的 <code>data/messages.sqlite3</code>。對使用者讀取時，應經過授權 reader。API 用法與根目錄設定見 <a href="../SQL_API_README.md">SQL API 文件</a>與<a href="../README.md#從專案根目錄設定與啟動">安裝說明</a>。</p>
+        <div class="flow-label">資料寫入與保存</div>
+        <ol class="flow">
+          <li><strong>文字 Bot 呼叫 SQLiteStore</strong><small>依伺服器、頻道與訊息 ID 保存文字及匯入進度。</small><a class="file" href="../sqlite_api.py">sqlite_api.py</a></li>
+          <li><strong>語音轉寫與 AI 呼叫同一介面</strong><small>保存一場錄音、逐字稿句子與會議摘要。</small><a class="file" href="../sqlite_api.py">sqlite_api.py</a></li>
+          <li class="destination"><strong>同一份 SQLite</strong><small>單一儲存模組建立資料表並設定 WAL，支援多個程式寫入。</small><code>data/messages.sqlite3</code></li>
+        </ol>
+        <ul class="data-list" aria-label="主要資料表"><li>messages</li><li>backfill_state</li><li>voice_sessions</li><li>voice_lines</li><li>voice_session_summaries</li></ul>
+        <div class="note"><strong>讀取邊界：</strong><code>SQLiteStore</code> 的底層讀取方法本身不驗證 Discord 權限。面向使用者或 AI 的讀取請使用 <code>AuthorizedMessageReader</code> 或 <code>AuthorizedTranscriptReader</code>；內部轉寫與摘要流程可使用 store 處理資料。</div>
+      </section>
+
+      <section class="panel system text" id="text-bot" aria-labelledby="text-title">
+        <div class="system-head"><span class="number">2</span><h2 id="text-title">文字 Bot｜Discord 訊息記憶</h2></div>
+        <p class="section-intro">Python bot 只處理設定中的一個 Discord 伺服器。它能匯入可讀取的舊訊息，並記錄後續文字訊息與編輯、刪除事件。</p>
+        <div class="flow-label">寫入流程</div>
+        <ol class="flow">
+          <li><strong>Discord 頻道</strong><small>文字頻道、語音／舞台頻道文字聊天、討論串。</small></li>
+          <li><strong>BotClient 事件</strong><small>啟動時 backfill_history；上線後 on_message 與編輯／刪除事件。</small><a class="file" href="../text_bot/bot.py">bot.py</a></li>
+          <li><strong>SQLiteStore</strong><small>按穩定的 guild_id、channel_id、message_id 保存或刪除。</small><a class="file" href="../sqlite_api.py">sqlite_api.py</a></li>
+          <li class="destination"><strong>SQL：messages</strong><small>只保存文字內容；無文字的附件不會存入。</small></li>
+        </ol>
+        <div class="flow-label">授權讀取流程（提供後續 AI 使用）</div>
+        <ol class="flow">
+          <li><strong>指定讀取者與頻道</strong><small>呼叫時帶 member_id 與 channel_id，不以其他頻道權限替代。</small></li>
+          <li><strong>ChannelAccess</strong><small>向 Discord 查現在的 View Channel、Read Message History；私人討論串再核對成員資格。</small><a class="file" href="../text_bot/channel_access.py">channel_access.py</a></li>
+          <li><strong>AuthorizedMessageReader</strong><small>確認通過才從同一頻道讀近期訊息；無法確認時拒絕。</small><a class="file" href="../text_bot/channel_access.py">channel_access.py</a></li>
+          <li class="destination"><strong>SQL：messages</strong><small>回傳該頻道的近期文字訊息。</small></li>
+        </ol>
+        <div class="note">目前 <code>bot.py</code> 對使用者公開的斜線指令只有 <code>/ping</code>；文字問答 <code>/ask</code> 在這個分支尚未接上。</div>
+      </section>
+
+      <section class="panel system voice" id="voice-bot" aria-labelledby="voice-title">
+        <div class="system-head"><span class="number">3</span><h2 id="voice-title">語音 Bot｜同意錄音與轉文字</h2></div>
+        <p class="section-intro">Node.js bot 管理 Discord 語音連線與使用者同意；Python <code>voice_bot/voice_stt</code> 在本機將同意者的錄音轉成逐字稿。</p>
+        <div class="flow-label">錄音與轉寫</div>
+        <ol class="flow">
+          <li><strong>/record start</strong><small>RecordController 檢查組長身分，加入組長所在語音頻道並貼出同意按鈕。</small><a class="file" href="../voice_bot/src/commands.js">commands.js</a></li>
+          <li><strong>ConsentBook</strong><small>預設未同意；只錄已按「同意錄音」的人。撤回時刪除該次已錄片段。</small><a class="file" href="../voice_bot/src/consent.js">consent.js</a></li>
+          <li><strong>RecordingSession</strong><small>將同意者的發言存成 WAV 片段及 manifest。</small><a class="file" href="../voice_bot/src/recorder.js">recorder.js</a></li>
+          <li><strong>/record stop</strong><small>runIngest 呼叫 Python；沒錄到片段時不產生逐字稿。</small><a class="file" href="../voice_bot/src/ingest.js">ingest.js</a></li>
+          <li><strong>voice_stt → SQLiteStore</strong><small>合併相近片段、以本機 Breeze-ASR-25 轉寫，再透過共用 API 保存。</small><a class="file" href="../voice_bot/voice_stt/stt/ingest_recording.py">ingest_recording.py</a></li>
+          <li class="destination"><strong>SQL：voice_sessions / voice_lines</strong><small>以會議、語音頻道與說話者保存逐字稿。</small></li>
+        </ol>
+        <div class="flow-label">使用者查看逐字稿或摘要</div>
+        <ol class="flow">
+          <li><strong>查看按鈕</strong><small>點選「查看逐字稿」或「查看摘要」。</small><a class="file" href="../voice_bot/src/commands.js">commands.js</a></li>
+          <li><strong>show_session</strong><small>以按鈕使用者的 ID 發起讀取；透過 reader 查資料。</small><a class="file" href="../meeting_ai/show_session.py">show_session.py</a></li>
+          <li><strong>ChannelAccess + TranscriptReader</strong><small>按現在語音頻道的權限檢查；拒絕或無法確認都不提供內容。</small><a class="file" href="../text_bot/transcript_reader.py">transcript_reader.py</a></li>
+          <li class="destination"><strong>僅點選者看得到</strong><small>Discord ephemeral 回覆，不把整份逐字稿或摘要公開貼到頻道。</small></li>
+        </ol>
+        <div class="note">錄音的 Discord 實際收音流程仍需測試伺服器驗收；本圖表示目前程式碼中的呼叫路徑。</div>
+      </section>
+
+      <section class="panel system ai" id="ai" aria-labelledby="ai-title">
+        <div class="system-head"><span class="number">4</span><h2 id="ai-title">AI｜會議摘要與未來協作功能</h2></div>
+        <p class="section-intro">語音 Bot 在轉寫成功後呼叫 <code>meeting_ai</code>。摘要器可替換；目前預設是本機規則版 <code>simple</code>，另有需 API key 的 <code>openai</code> 版。</p>
+        <div class="flow-label">已寫入程式碼的會議整理流程</div>
+        <ol class="flow">
+          <li><strong>SQL：voice_lines</strong><small>讀取單場會議逐字稿；不確定的句子標為 uncertain。</small></li>
+          <li><strong>summarize_session → SQLiteStore</strong><small>讀取 MeetingLine，呼叫可替換的 MeetingSummarizer，再將結果寫回共用 API。</small><a class="file" href="../meeting_ai/summarize_session.py">summarize_session.py</a></li>
+          <li><strong>simple 或 OpenAI</strong><small>產生摘要、決定與待辦草案，決定／待辦保留來源行號。</small><a class="file" href="../meeting_ai/interface.py">interface.py</a></li>
+          <li class="destination"><strong>SQL：voice_session_summaries</strong><small>保存內容、摘要器名稱、prompt 版本與來源句數；供查看按鈕讀取。</small></li>
+        </ol>
+        <div class="flow-label">完整產品目標（目前尚未接上）</div>
+        <ol class="flow">
+          <li class="future"><strong>整合團隊進度</strong><small>結合文字紀錄與會議結果，找出需要處理的問題。</small></li>
+          <li class="future"><strong>提出行動建議</strong><small>產生有來源依據的任務草案。</small></li>
+          <li class="future"><strong>組長確認</strong><small>由組長審核與修改後才採用。</small></li>
+          <li class="future"><strong>委派與協助執行</strong><small>交給對應成員的 AI agent，追蹤協作結果。</small></li>
+        </ol>
+        <div class="note">摘要工作是系統內部處理；把保存內容顯示給使用者時，仍須走授權 reader。目前沒有已接上的跨文字與語音資料 AI 問答、組長審核或任務委派入口。完整目標來自<a href="../README.md">專案 README</a>；AI 讀取保存內容的規則見 <a href="ai_memory_api.md">ai_memory_api.md</a>。</div>
+      </section>
+    </main>
+    <footer>檔案路徑以專案根目錄為基準。此頁不含金鑰、實際訊息或錄音資料；可直接以瀏覽器開啟，無外部套件或網路依賴。</footer>
+  </div>
+</body>
+</html>

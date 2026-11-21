@@ -1,14 +1,10 @@
-// npm run check: checks voice_bot/.env without ever printing the token.
+// npm run check: checks the project root .env without ever printing the token.
 // It asks Discord (and only Discord) whether the token works and whether the bot is in the server.
 // npm run check -- --offline skips that and only checks the file.
 import fs from 'node:fs';
-import path from 'node:path';
 
-import dotenv from 'dotenv';
+import { ENV_FILE, botIdFromToken, inviteUrl, loadConfig, loadRootEnv, tokenProblems } from './config.js';
 
-import { BOT_ROOT, botIdFromToken, inviteUrl, loadConfig, tokenProblems } from './config.js';
-
-const ENV_FILE = path.join(BOT_ROOT, '.env');
 const API = 'https://discord.com/api/v10';
 
 let warnings = 0;
@@ -23,8 +19,7 @@ const fail = (text) => {
 };
 
 function checkFile() {
-  if (!fs.existsSync(ENV_FILE)) fail('找不到 voice_bot/.env：先把 .env.example 複製成 .env。');
-  dotenv.config({ path: ENV_FILE, quiet: true });
+  if (fs.existsSync(ENV_FILE)) loadRootEnv();
 
   let config;
   try {
@@ -34,8 +29,8 @@ function checkFile() {
   }
 
   const problems = tokenProblems(config.token);
-  if (problems.length > 0) fail(`DISCORD_TOKEN 看起來貼錯了：${problems.join('、')}。`);
-  ok(`DISCORD_TOKEN 已填（屬於 bot ID ${botIdFromToken(config.token)}，內容不顯示）`);
+  if (problems.length > 0) fail(`VOICE_BOT_TOKEN 看起來貼錯了：${problems.join('、')}。`);
+  ok(`VOICE_BOT_TOKEN 已填（屬於 bot ID ${botIdFromToken(config.token)}，內容不顯示）`);
   ok(`DISCORD_GUILD_ID = ${config.guildId}`);
   if (config.leaderRoleId) ok(`LEADER_ROLE_ID = ${config.leaderRoleId}`);
   else ok('LEADER_ROLE_ID 留空：有「管理伺服器」權限的人才能用 /record');
@@ -44,13 +39,17 @@ function checkFile() {
 
   if (fs.existsSync(config.python)) ok('找到語音辨識的 Python 環境');
   else warn(`找不到 ${config.python}：錄完音會無法轉文字（見 voice_stt 的 README）`);
-  if (fs.existsSync(config.readerPython)) ok('找到 discord_bot 的 Python 環境（「查看摘要／逐字稿」按鈕用）');
-  else warn(`找不到 ${config.readerPython}：「查看」按鈕會無法使用（見 discord_bot 的 README）`);
+  if (fs.existsSync(config.readerPython)) ok('找到 text_bot 的 Python 環境（「查看摘要／逐字稿」按鈕用）');
+  else warn(`找不到 ${config.readerPython}：「查看」按鈕會無法使用（見 text_bot 的 README）`);
 
-  const summarizer = (process.env.MEETING_SUMMARIZER ?? '').trim() || 'simple';
-  if (summarizer === 'claude') {
-    if ((process.env.ANTHROPIC_API_KEY ?? '').trim()) ok('摘要器：claude，ANTHROPIC_API_KEY 已填（內容不顯示，每次摘要都會花錢）');
-    else warn('MEETING_SUMMARIZER=claude，但沒有 ANTHROPIC_API_KEY：摘要會失敗');
+  const summarizer = (process.env.MEETING_SUMMARIZER ?? '').trim().toLowerCase() || 'simple';
+  if (summarizer === 'openai') {
+    if ((process.env.OPENAI_API_KEY ?? '').trim()) ok('摘要器：openai，OPENAI_API_KEY 已填（內容不顯示，每次摘要都會花錢）');
+    else warn('MEETING_SUMMARIZER=openai，但沒有 OPENAI_API_KEY：摘要會失敗');
+  } else if (summarizer === 'claude') {
+    warn('MEETING_SUMMARIZER=claude 已移除：請改用 openai 並設定 OPENAI_API_KEY');
+  } else if (summarizer !== 'simple') {
+    warn(`不認得的摘要器 ${summarizer}：請用 simple 或 openai`);
   } else {
     ok(`摘要器：${summarizer}`);
   }

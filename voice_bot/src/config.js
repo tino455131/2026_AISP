@@ -1,13 +1,21 @@
-// Reads and checks the settings in voice_bot/.env.
+// Reads and checks the settings in the project root .env.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import dotenv from 'dotenv';
+
 export const BOT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REPO_ROOT = path.resolve(BOT_ROOT, '..');
+export const ENV_FILE = path.join(REPO_ROOT, '.env');
+
+export function loadRootEnv() {
+  return dotenv.config({ path: ENV_FILE, quiet: true, override: false });
+}
 
 const venvPython = (dir) => (process.platform === 'win32' ? `${dir}/.venv/Scripts/python.exe` : `${dir}/.venv/bin/python`);
-const DEFAULT_PYTHON = venvPython('voice_stt');
-const DEFAULT_READER_PYTHON = venvPython('discord_bot'); // has discord.py, for the "查看" buttons
+const STT_ROOT = path.join(BOT_ROOT, 'voice_stt');
+const DEFAULT_PYTHON = venvPython(STT_ROOT);
+const DEFAULT_READER_PYTHON = venvPython('text_bot'); // has discord.py, for the "查看" buttons
 
 const isSnowflake = (text) => /^\d{5,25}$/.test(text);
 
@@ -46,10 +54,10 @@ export function inviteUrl(botId, guildId) {
 }
 
 export function loadConfig(env = process.env) {
-  const token = (env.DISCORD_TOKEN ?? '').trim();
+  const token = (env.VOICE_BOT_TOKEN ?? '').trim();
   if (!token || token === 'your-voice-bot-token-here') {
     throw new Error(
-      'DISCORD_TOKEN 還沒填：打開 voice_bot/.env（沒有的話先把 .env.example 複製成 .env），把「語音 bot」自己的 token 貼在 DISCORD_TOKEN= 後面。',
+      '請在專案根目錄 .env 設定 VOICE_BOT_TOKEN（可先複製根目錄 .env.example）。',
     );
   }
 
@@ -80,8 +88,8 @@ export function loadConfig(env = process.env) {
     python: fromRepo(env.STT_PYTHON, DEFAULT_PYTHON),
     readerPython: fromRepo(env.READER_PYTHON, DEFAULT_READER_PYTHON),
     repoRoot: REPO_ROOT,
-    sttDir: path.join(REPO_ROOT, 'voice_stt'),
-    botDb: fromRepo(env.BOT_DB, 'discord_bot/data/messages.sqlite3'),
+    sttDir: STT_ROOT,
+    botDb: fromRepo(env.BOT_DB, 'data/messages.sqlite3'),
     recordingsDir: fromRepo(env.RECORDINGS_DIR, 'voice_bot/recordings'),
   };
 }

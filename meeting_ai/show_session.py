@@ -2,7 +2,7 @@
 
     python -m meeting_ai.show_session <session_id> --member <Discord user ID> --guild-id <ID> [--what summary|transcript]
 
-Run from the repo root with discord_bot's virtual environment (it needs discord.py).
+Run from the repo root with text_bot's virtual environment (it needs discord.py).
 
 This is also a working example, for the AI team, of reading through the interface in
 docs/ai_memory_api.md: everything comes from AuthorizedTranscriptReader, which asks
@@ -10,7 +10,7 @@ Discord right now whether this person can read the voice channel's history. Whoe
 (even someone who missed the meeting) gets the text; anyone else gets nothing.
 
 The permission check needs a live Discord connection, so this logs in as the recording
-bot (DISCORD_TOKEN, or voice_bot/.env) for a few seconds. Prints one line "RESULT {json}":
+bot (VOICE_BOT_TOKEN in the project root .env) for a few seconds. Prints one line "RESULT {json}":
 {"ok": true, "what": ..., "text": ...} or {"ok": false, "reason": ...}.
 """
 
@@ -23,15 +23,18 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
+
+from dotenv import load_dotenv
 from typing import Awaitable, Callable
 
 from .interface import MeetingSummary, render_markdown
-from .summarize_session import DEFAULT_DB, REPO_ROOT, build_lines
+from sqlite_api import PROJECT_ROOT, SessionNotFound, SQLiteStore, TranscriptLine, resolve_database_path
 
-sys.path.insert(0, str(REPO_ROOT / "discord_bot"))
+from .summarize_session import build_lines
+
+sys.path.insert(0, str(PROJECT_ROOT / "text_bot"))
 from channel_access import AccessDenied, AccessUnavailable, ChannelAccess  # noqa: E402
 from transcript_reader import AuthorizedTranscriptReader, SummaryView  # noqa: E402
-from transcript_store import SessionNotFound, TranscriptLine, TranscriptStore  # noqa: E402
 
 NamesOf = Callable[[list[int]], Awaitable[dict[int, str]]]
 
@@ -84,15 +87,9 @@ async def read_for_member(reader, member_id: int, session_id: str, what: str, na
 
 def _token() -> str:
     """The recording bot's token, never printed."""
-    token = os.environ.get("DISCORD_TOKEN", "").strip()
-    env_file = REPO_ROOT / "voice_bot" / ".env"
-    if not token and env_file.is_file():
-        for raw in env_file.read_text(encoding="utf-8").splitlines():
-            key, sep, value = raw.partition("=")
-            if sep and key.strip() == "DISCORD_TOKEN":
-                token = value.strip().strip("\"'")
+    token = os.environ.get("VOICE_BOT_TOKEN", "").strip()
     if not token:
-        raise SystemExit("找不到 DISCORD_TOKEN（請在 voice_bot/.env 填好）")
+        raise SystemExit("找不到 VOICE_BOT_TOKEN（請填寫專案根目錄 .env）")
     return token
 
 
@@ -122,7 +119,7 @@ async def run(session_id: str, member_id: int, guild_id: int, what: str, db: Pat
                         names[speaker_id] = str(speaker_id)  # left the server, or Discord hiccup
                 return names
 
-            reader = AuthorizedTranscriptReader(ChannelAccess(client, guild_id), TranscriptStore(db))
+            reader = AuthorizedTranscriptReader(ChannelAccess(client, guild_id), SQLiteStore(db))
             return await read_for_member(reader, member_id, session_id, what, names_of)
         finally:
             ready.cancel()
@@ -131,6 +128,7 @@ async def run(session_id: str, member_id: int, guild_id: int, what: str, db: Pat
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_dotenv(PROJECT_ROOT / ".env", interpolate=False)
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
@@ -138,12 +136,14 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="python -m meeting_ai.show_session", description=__doc__.splitlines()[0])
     p.add_argument("session_id")
     p.add_argument("--member", type=int, required=True, help="who is asking (Discord user ID)")
-    p.add_argument("--guild-id", type=int, required=True)
+    p.add_argument("--guild-id", type=int, default=os.getenv("DISCORD_GUILD_ID", "").strip() or None)
     p.add_argument("--what", choices=["summary", "transcript"], default="summary")
-    p.add_argument("--db", default=str(DEFAULT_DB))
+    p.add_argument("--db", type=Path, default=resolve_database_path(os.getenv("BOT_DB")))
     args = p.parse_args(argv)
+    if args.guild_id is None or args.guild_id <= 0:
+        p.error("請在根目錄 .env 設定 DISCORD_GUILD_ID，或傳入有效的 --guild-id")
 
-    result = asyncio.run(run(args.session_id, args.member, args.guild_id, args.what, Path(args.db)))
+    result = asyncio.run(run(args.session_id, args.member, args.guild_id, args.what, args.db))
     print("RESULT " + json.dumps(result, ensure_ascii=False))
     return 0
 

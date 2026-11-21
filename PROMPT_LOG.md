@@ -381,3 +381,36 @@ AI 用選項確認後，使用者回答：
 - 五組測試全部通過。
 
 **我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-22 — 統一 SQLite API、搬移資料庫並集中環境設定
+
+**使用者原始要求：**
+
+> 將讀取/寫入SQL Llite的介面統一到一個file內，並寫幾個tests確保運作正常。同步更新html
+>
+> sqlite_access.py檔案放置的位置不太合理，因為其他資料夾的檔案會使用它，建議我好方法。檔案名稱改為sqlite_api.py
+
+接續提出三項要求。
+
+> 1. 將discord_bot的data資料夾以及其內容移動至根資料夾，並同步修改其他相關程式，確保相依性
+> 2. 未來其他合作開發者會根據 sqlite_api.py 中的api讀寫SOL的文字資料，以進行AI tool的設計。請統一各function的命名方式。請寫好google docstring和SQL_API_README.md。
+> 3. 使環境設定方式可以統一在根資料夾設定，而不用各別到discord_bot或voice_stt資料夾內分別設定
+
+**使用者選擇：** 採用根目錄的 `sqlite_api.py` 與單一 `SQLiteStore`，移除舊儲存模組，Discord 權限檢查由獨立的 reader 負責。兩個 Python 虛擬環境各自安裝共用 API，執行設定集中在同一份根目錄 `.env`。
+
+**實作提示：** 使用者以「PLEASE IMPLEMENT THIS PLAN」核准實作，要求保留既有資料與資料表行為、更新所有呼叫端、驗證搬移前後結果，並同步更新開發者文件及流程圖。
+
+**模型／工具：** Codex（GPT-6 系列），搭配本機 SQLite、Python unittest／pytest 與 Node 測試。
+
+**產出：**
+
+- 將文字訊息、語音逐字稿和會議摘要的 SQLite 操作集中到 `sqlite_api.py`，以 `list_recent_messages`、`save_historical_message` 等動詞開頭的方法統一命名，並補上 Google-style docstring。
+- 將本機 `discord_bot/data/` 搬到根目錄 `data/`，所有入口採同一預設路徑。支援以 `BOT_DB` 指定共用資料庫，CLI 可用 `--db` 個別覆寫。
+- 新增根目錄 `.env.example`，集中 `TEXT_BOT_TOKEN`、`VOICE_BOT_TOKEN`、`DISCORD_GUILD_ID` 和摘要相關設定。將本機既有文字 Bot 設定帶入根目錄 `.env`。
+- 新增 [SQL API 使用指南](SQL_API_README.md)，同步更新根目錄安裝指令、[AI 授權讀取說明](docs/ai_memory_api.md)與[系統流程圖](docs/SystemWorkflow.html)。文件依目前程式說明 `meeting_ai` 的 OpenAI 摘要選項。
+
+**檢查：** 搬移前後 `PRAGMA quick_check` 均為 `ok`，27 筆訊息、3 筆匯入進度與 0 筆刪除標記一致。75 項 Python 測試與 13 項 Node 測試通過，另確認文件範例、`BOT_DB`／`--db` 優先順序及離線設定檢查。
+
+**尚未驗證：** 實際連線 Discord、以真實音檔轉寫，以及實際呼叫 OpenAI 摘要 API。本機的語音 Bot Token 欄位仍待填寫。
+
+**我改了什麼、為什麼：** 將共用 API 與資料庫放在根目錄，讓各元件可以從同一個入口取得資料，也讓合作開發者能從文件找到正確用法。保留兩個 Python 環境以分開文字 Bot 與語音辨識的依賴，並集中設定，減少不同元件讀到不同路徑或憑證的機會。

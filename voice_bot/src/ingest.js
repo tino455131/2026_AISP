@@ -1,7 +1,7 @@
 // After /record stop, two Python steps run (in voice_stt's virtual environment):
 //   1. voice_stt:  recording folder -> transcript in the bot database
 //   2. meeting_ai: transcript -> summary, stored in the database
-// The "查看" buttons run a third one (in discord_bot's environment, it needs discord.py):
+// The "查看" buttons run a third one (in text_bot's environment, it needs discord.py):
 //   meeting_ai.show_session reads for one person through the AI team's reader interface.
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -53,5 +53,5 @@ export function runSummary({ python, repoRoot, sessionId, sessionDir, botDb }) {
 export function runShow({ python, repoRoot, botDb, token, sessionId, memberId, guildId, what }) {
   const args = ['-m', 'meeting_ai.show_session', sessionId, '--member', memberId, '--guild-id', guildId];
   args.push('--what', what, '--db', botDb);
-  return runPython(python, args, repoRoot, { DISCORD_TOKEN: token });
+  return runPython(python, args, repoRoot, { VOICE_BOT_TOKEN: token });
 }

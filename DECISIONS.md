@@ -109,3 +109,27 @@
 - 為了確認權限，每按一次都會用同一個 bot 帳號短暫連上 Discord，要幾秒。這只適合測試；正式版應由 AI 組在 bot 程式裡直接呼叫 reader。
 
 **Led by:** Ping3227
+
+## 2026-11-22 — 統一文字與語音的 SQLite 存取介面
+
+**What:** 將文字訊息、語音逐字稿及會議摘要的存取集中在根目錄的 [sqlite_api.py](sqlite_api.py)，由 `SQLiteStore` 提供統一命名的讀寫方法。面向 Discord 使用者的讀取仍由授權 reader 驗證頻道權限。方法、欄位及讀寫範例記錄在 [SQL_API_README.md](SQL_API_README.md)。
+
+**Why:** 讓文字 Bot、語音轉寫及 AI 工具共用同一份資料介面，避免各自維護 SQL 語句、連線和資料表定義。將 Discord 權限保留在 reader，讓儲存層可供內部流程共用，並在使用者查詢時以當下權限決定是否提供內容。
+
+## 2026-11-22 — 將 SQLite 資料目錄移至專案根目錄
+
+**What:** 將原本的 `discord_bot/data/` 搬到根目錄 `data/`，文字 Bot、語音 Bot、轉寫與摘要共用 `data/messages.sqlite3` 作為預設位置，可透過 `BOT_DB` 覆寫。既有資料表與紀錄沿用同一資料庫檔。
+
+**Why:** SQLite 是跨元件共用的資料，放在根目錄可讓資料歸屬與備份位置更清楚，並降低不同元件因路徑不一致而各自建立資料庫的風險。
+
+## 2026-11-22 — 會議摘要改用 OpenAI API
+
+**What:** `meeting_ai` 的雲端摘要實作由 Claude 換為 OpenAI，透過 `MEETING_SUMMARIZER=openai` 啟用，以 `OPENAI_API_KEY` 驗證。預設仍是供本機測試的 `simple`。OpenAI 版沿用 `MeetingSummarizer` 介面，輸出摘要、決定、待辦及對應的來源行號。
+
+**Why:** 團隊可以用 OpenAI 憑證執行會議摘要，錄音、轉寫與資料庫流程也能沿用同一份摘要介面。本機測試可用 `simple` 驗證流程，無須呼叫外部服務。
+
+## 2026-11-22 — 從專案根目錄管理執行設定
+
+**What:** 由根目錄 [環境範本](.env.example) 建立一份 `.env`，集中設定文字 Bot 的 `TEXT_BOT_TOKEN`、語音 Bot 的 `VOICE_BOT_TOKEN`、共用的 `DISCORD_GUILD_ID` 及 `OPENAI_API_KEY`。Windows 與 macOS 的安裝和啟動說明集中在 [README.md](README.md)，兩個 Python 元件各自使用原有的虛擬環境。
+
+**Why:** 兩個 Bot 可以保留各自的 Discord 帳號，團隊成員則只需到一個地方設定伺服器、憑證及摘要選項。各自的虛擬環境也能讓語音辨識依賴與文字 Bot 分開管理。

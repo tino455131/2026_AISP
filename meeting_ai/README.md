@@ -39,9 +39,10 @@ class MeetingSummarizer(Protocol):
 | 名稱 | 檔案 | 說明 |
 |---|---|---|
 | `simple`（預設） | `simple.py` | 關鍵字規則，不用 API，結果粗糙，只為了測試流程 |
-| `claude` | `claude.py` | 呼叫 Claude（`claude-opus-5-5`），用 JSON schema 固定輸出格式；需要 `pip install anthropic` 和 API key |
+| `openai` | `openai.py` | 呼叫 OpenAI（預設 `gpt-6-luna`），用 JSON schema 固定輸出格式；需要 `openai` 套件和 API key |
 
-切換：設定環境變數 `MEETING_SUMMARIZER=simple|claude`。
+由專案根目錄 .env 設定環境變數 `MEETING_SUMMARIZER=simple|openai`。OpenAI 摘要器需要 `OPENAI_API_KEY`，可用 `MEETING_SUMMARY_MODEL` 覆蓋模型。舊的 `claude` 設定已移除，需改成 `openai`。
+`voice_bot` 會使用 `voice_stt` 的 Python 環境執行摘要；在 repo 根目錄執行 `voice_bot/voice_stt/.venv/Scripts/python.exe -m pip install -r voice_bot/voice_stt/requirements.txt` 安裝相依套件。完整設定與其他平台指令見[根目錄 README](../README.md#從專案根目錄設定與啟動)。
 
 ## 換成你們自己的版本
 
@@ -63,15 +64,17 @@ class MeetingSummarizer(Protocol):
 voice_bot 的「查看摘要」「查看逐字稿」按鈕會執行它，也可以當作 AI 組使用讀取介面的範例：
 
 ```python
-reader = AuthorizedTranscriptReader(ChannelAccess(client, guild_id), TranscriptStore(db))
+from sqlite_api import SQLiteStore
+
+reader = AuthorizedTranscriptReader(ChannelAccess(client, guild_id), SQLiteStore(db))
 lines = await reader.transcript_for(member_id, session_id)   # 沒權限 → AccessDenied
 view = await reader.summary_for(member_id, session_id)       # 沒摘要 → None
 ```
 
-手動試（要用 `discord_bot/.venv`，因為需要 discord.py；會用 voice_bot 的 token 連上 Discord 幾秒）：
+手動試（要用 `text_bot/.venv`，因為需要 discord.py；使用根目錄 .env 的 `VOICE_BOT_TOKEN` 與 `DISCORD_GUILD_ID` 連上 Discord 幾秒）：
 
 ```bash
-discord_bot/.venv/Scripts/python.exe -m meeting_ai.show_session <session_id> --member <Discord ID> --guild-id <伺服器ID> --what summary
+text_bot/.venv/Scripts/python.exe -m meeting_ai.show_session <session_id> --member <Discord ID> --what summary
 ```
 
 回傳 `{"ok": true, "text": ...}`，或 `{"ok": false, "reason": "denied" | "unavailable" | "not_found" | "no_summary"}`。
@@ -80,18 +83,18 @@ discord_bot/.venv/Scripts/python.exe -m meeting_ai.show_session <session_id> --m
 
 ```bash
 cd meeting_ai
-../voice_stt/.venv/Scripts/python.exe -m pytest
+../voice_bot/voice_stt/.venv/Scripts/python.exe -m pytest
 ```
 
-8 項測試；Claude 版本用假的 client 測，不會真的呼叫 API。
+OpenAI 版本用假的 client 測，不會真的呼叫 API。
 `show_session` 的 6 項測試需要 discord.py，在上面的環境會跳過，請另外跑：
 
 ```bash
-discord_bot/.venv/Scripts/python.exe -m unittest meeting_ai.tests.test_show_session -v   # 在 repo 根目錄
+text_bot/.venv/Scripts/python.exe -m unittest meeting_ai.tests.test_show_session -v   # 在 repo 根目錄
 ```
 
 手動試一場已存的會議：
 
 ```bash
-voice_stt/.venv/Scripts/python.exe -m meeting_ai.summarize_session <session_id> --db 資料庫路徑
+voice_bot/voice_stt/.venv/Scripts/python.exe -m meeting_ai.summarize_session <session_id> --db 資料庫路徑
 ```

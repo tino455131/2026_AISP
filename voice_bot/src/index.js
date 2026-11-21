@@ -1,13 +1,10 @@
 // Entry point: node src/index.js (or npm start) inside voice_bot/.
-import path from 'node:path';
-
 import { Client, Events, GatewayIntentBits } from 'discord.js';
-import dotenv from 'dotenv';
 
 import { RecordController, recordCommand } from './commands.js';
-import { BOT_ROOT, loadConfig } from './config.js';
+import { loadConfig, loadRootEnv } from './config.js';
 
-dotenv.config({ path: path.join(BOT_ROOT, '.env'), quiet: true });
+loadRootEnv();
 
 let config;
 try {

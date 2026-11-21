@@ -2,7 +2,7 @@
 
 在 Discord 語音頻道錄下**有按「同意」的人**的聲音，結束後自動：
 
-1. 交給 [`voice_stt`](../voice_stt/README.md) 轉成台灣繁體逐字稿，存進 bot 的資料庫（`discord_bot/data/messages.sqlite3`）
+1. 交給 [`voice_stt`](voice_stt/README.md) 轉成台灣繁體逐字稿，存進 bot 的資料庫（`data/messages.sqlite3`）
 2. 交給 [`meeting_ai`](../meeting_ai/README.md) 整理摘要（可替換的介面），存進資料庫
 3. 在語音頻道聊天室留一則**靜音**訊息和「查看摘要」「查看逐字稿」按鈕：按的人才看得到內容，不會吵到其他人
 
@@ -16,22 +16,12 @@
    不需要開任何 Privileged Gateway Intents。
 2. **邀請進伺服器**：OAuth2 → URL Generator，scopes 勾 `bot`、`applications.commands`；
    權限勾 **View Channels、Send Messages、Connect、Change Nickname**。用產生的網址邀請進（測試）伺服器。
-3. **安裝**（需要 Node.js 22.12 以上）：
+3. **安裝**。依[根目錄 README](../README.md#從專案根目錄設定與啟動)從根目錄安裝 Node.js 與 Python 依賴。摘要用 `voice_bot/voice_stt/.venv`，查看按鈕用 `text_bot/.venv`。
+4. **填寫根目錄 .env**。設定 `VOICE_BOT_TOKEN`、`DISCORD_GUILD_ID`，並視需要設定允許開始錄音的 `LEADER_ROLE_ID`。
+5. **從根目錄檢查設定**。
 
-   ```bash
-   cd voice_bot
-   npm install
-   cp .env.example .env
-   ```
-
-4. **填 `.env`**：`DISCORD_TOKEN`、`DISCORD_GUILD_ID`，以及（選填）可以開始錄音的組長身分組 `LEADER_ROLE_ID`。
-   token 等於密碼：只貼進 `.env`，不要貼到聊天室、Discord、Notion 或 AI 對話裡。弄丟了就到 Developer Portal 按 Reset Token 重新產生。
-5. 確認 `voice_stt/.venv` 已經裝好（見 voice_stt 的 README）；摘要也用同一個環境執行。
-   「查看」按鈕用 `discord_bot/.venv`（需要 discord.py，見 discord_bot 的 README）。
-6. **檢查設定**：
-
-   ```bash
-   npm run check
+   ```sh
+   npm --prefix voice_bot run check
    ```
 
    它不會印出 token，只會告訴你：token 格式對不對、Discord 認不認得它、bot 在不在伺服器裡。bot 還沒被邀進伺服器時，它會直接印出邀請網址（權限已勾好），可以取代第 2 步。
@@ -40,8 +30,7 @@
 ## 啟動
 
 ```bash
-cd voice_bot
-npm start
+npm --prefix voice_bot start
 ```
 
 看到「語音錄音 bot 已上線」就可以用了。`/record` 指令會自動註冊到 `.env` 指定的伺服器。
@@ -78,12 +67,13 @@ npm start
 
 ## 換摘要器
 
-預設是 `simple`（關鍵字規則，不用 API，只是讓流程能測）。要用 Claude：
+預設是 `simple`（關鍵字規則，不用 API，只是讓流程能測）。要用 OpenAI：
 
-```bash
-# voice_stt 的 venv 要先裝 anthropic：voice_stt/.venv/Scripts/python.exe -m pip install anthropic
-MEETING_SUMMARIZER=claude ANTHROPIC_API_KEY=... npm start
-```
+1. 在 repo 根目錄執行 `voice_bot/voice_stt/.venv/Scripts/python.exe -m pip install -r voice_bot/voice_stt/requirements.txt`，將 OpenAI 套件裝進摘要實際使用的環境。
+2. 在根目錄 .env 設定 `MEETING_SUMMARIZER=openai` 和 `OPENAI_API_KEY`；可選擇設定 `MEETING_SUMMARY_MODEL`，預設為 `gpt-6-luna`。
+3. 執行 `npm --prefix voice_bot run check` 確認設定，再用 `npm --prefix voice_bot start` 啟動。
+
+若原本設定 `MEETING_SUMMARIZER=claude`，請改成 `openai`，並以 `OPENAI_API_KEY` 取代 `ANTHROPIC_API_KEY`。
 
 AI 組要換成自己的版本，見 [meeting_ai/README.md](../meeting_ai/README.md)。
 
@@ -92,9 +82,10 @@ AI 組要換成自己的版本，見 [meeting_ai/README.md](../meeting_ai/README
 - **bot 在錄音中途關掉**：錄音資料夾還在，可以手動轉文字：
 
   ```bash
-  cd voice_stt
-  .venv/Scripts/python.exe -m stt.ingest_recording ../voice_bot/recordings/<session>
+  ./voice_bot/voice_stt/.venv/Scripts/python.exe -m voice_bot.voice_stt.stt.ingest_recording voice_bot/recordings/錄音資料夾名稱
   ```
+
+  macOS 請把 Python 路徑換成 `./voice_bot/voice_stt/.venv/bin/python`。
 
 - **改不了暱稱**：bot 缺「更改暱稱」權限，錄音照常進行，但大家看不到 `[REC]`。
 - **連不上語音頻道**：確認 bot 在那個頻道有 Connect 權限。
@@ -107,7 +98,7 @@ AI 組要換成自己的版本，見 [meeting_ai/README.md](../meeting_ai/README
 ## 測試
 
 ```bash
-npm test
+npm --prefix voice_bot test
 ```
 
-8 項單元測試，不需要連 Discord。目前還沒有在真的 Discord 伺服器上測過收音。
+單元測試不需要連 Discord。
