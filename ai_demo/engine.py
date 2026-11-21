@@ -15,7 +15,10 @@ from meeting_ai import get_summarizer
 
 
 def get_engine(name: str | None = None):
-    chosen = name or os.environ.get("AI_DEMO_ENGINE") or "claude-code"
+    """--ai, then AI_DEMO_ENGINE, then the summarizer in use (unless it is simple), then claude-code."""
+    summarizer = os.environ.get("MEETING_SUMMARIZER", "").strip()
+    follow = summarizer if summarizer.lower() not in ("", "simple") else ""
+    chosen = name or os.environ.get("AI_DEMO_ENGINE") or follow or "claude-code"
     engine = get_summarizer(chosen)
     if not callable(getattr(engine, "generate", None)):
         raise ValueError(f"{chosen} 不是語言模型，不能用在 AI 功能（請用 claude-code、claude 或 openai）")

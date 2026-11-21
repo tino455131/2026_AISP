@@ -643,3 +643,119 @@ AI 用選項確認後，使用者回答：
 - OpenAI 沒有實際呼叫。
 
 **我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-21 — Discord 測試指令 /ai（Ping3227）
+
+**使用者原始要求：**
+
+> 我是說你有沒有一些可以直接跟bot 互動的功能，我要用這個測試，然後這個bot 互動單元會去用那個api拿取東西
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**產出：**
+
+- `voice_bot/src/ai.js`（新）：
+  - `/ai tasks`、`/ai ask`。
+  - 會議選項可以打字搜尋，只列出看得到的頻道裡的會議。
+  - 先檢查權限（`accessTo`），結果只回給本人。
+- `voice_bot/src/index.js`：註冊 `/ai`；指令分派改成一張對照表。
+- `voice_bot/src/ingest.js`：`runAiDemo`。
+- `ai_demo/cli.py`：`--bot` 模式，Discord ID 用字串；錯誤照 spec 的錯誤代碼。
+- `ai_demo/engine.py`：沒指定時跟著目前的摘要器。
+- 測試、README、DECISIONS。
+
+**檢查：**
+
+- voice_bot 20 項、ai_demo 7 項測試通過。
+- 從 Node 實際呼叫：
+  - 列出真實資料庫的 6 場會議，頻道 ID 是字串。
+  - 對 Demo_Script 假會議問「小考是紙本還是電腦作答」，Claude Code 4 秒回答並附依據。
+
+**尚未驗證：** 在 Discord 實際下 `/ai`。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-21 — 資料怎麼從 SQLite 拿、資料庫架構、詢問是否追蹤進度（Ping3227）
+
+**使用者原始要求：**
+
+> 我試了，所以目前接口是好的對嗎，我問的這些問題個別都是怎麼從sqlite 拿data的，另外我想要sqlite 存資料的資料庫架構，我說我們現在有存的這些東西，在來你能先簡單做一個詢問是否要追蹤進度的程式嗎
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**產出：**
+
+- `docs/database_schema.md`（新）：所有資料表、關係圖、每個功能讀寫哪些表。
+- `ai_demo/tracking.py`（新）：`demo_tasks`、`demo_inquiries`、`demo_progress_updates`。
+  - 確認不重複建立任務。
+  - 只有負責人能回報。
+  - 送不出去的詢問不算沒回。
+- `ai_demo/cli.py`：新增 `track`、`inquiry`、`progress`、`tracked`；`--stdin` 接 bot 傳來的資料。
+- `ai_demo/local_data.py`：文字會議可以用 bot 當場讀到的原文。
+- `meeting_ai/summarize_text_meeting.py`：被 @ 的人也有代號，`<@id>` 換成「@名字（S3）」。
+- `voice_bot/src/ai.js`：
+  - 「追蹤」按鈕、私訊詢問、處理負責人回報、`/ai tracked`。
+  - 文字會議當場讀原文。
+- `voice_bot/src/meetings.js`：讀會議訊息的函式拿出來共用；記錄被 @ 的人。
+- `voice_bot/src/index.js`：接受私訊裡的進度按鈕。
+- 測試、README、DECISIONS。
+
+**檢查：**
+
+- 測試全部通過：voice_bot 21 項、ai_demo 11 項、meeting_ai 26 項（2 項略過）。
+- 用暫時資料庫從 Node 實際跑追蹤流程：
+  - 建立、重送不重複、記詢問都正常。
+  - 別人回報被拒（`ROLE_REQUIRED`）。
+  - 負責人回報後狀態變成 `in_progress`。
+- bot 紀錄裡，使用者前面試的 `/ai` 沒有錯誤。
+
+**尚未驗證：** 在 Discord 實際按追蹤、收私訊、回報。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-21 — 給 AI 組的說明文件、假資料庫、對照 spec 檢查（Ping3227）
+
+**使用者原始要求：**
+
+> 確定我這邊要給AI端那邊的功能暫時都是可以用的，做一個說明檔案，說明如何使用包含啟用測是那些相關用得到的功能，然後也檢查有沒有按照spec
+
+（前一輪的討論：要不要 push 含語音資料的 SQLite 和開 SQL API 給 AI 組測試。）
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**產出：**
+
+- `docs/ai_team_guide.md`（新）：
+  - 有哪些功能可以用。
+  - 在自己電腦上怎麼測（假資料庫、讀取介面、ai_demo）。
+  - 在 Discord 上怎麼測，以及啟動選項。
+  - 對照 spec v1.1 的結果。
+- `demo_data/`（新）：`make_demo_db.py`、`fake_access.py`、`try_readers.py`、`test_demo_data.py`、README。
+- `ai_demo/tracking.py`：完成後負責人不能再改；按鈕回報後詢問結案。
+- `ai_demo/local_data.py`：
+  - 讀完資料庫會關閉連線（原本 Windows 會鎖住檔案）。
+  - 在終端機讀文字會議時，@ 的人也換成代號。
+- `voice_bot/src/ai.js`：
+  - Bot 讀不到來源時，回覆 `SOURCE_UNAVAILABLE_BOT`。
+  - AI 跑完、送出前再確認權限（AC23）。
+  - 私人討論串要確認成員（AC26）。
+  - 結果不明的私訊記成 `delivery_unknown`。
+- 測試、README、`docs/database_schema.md`、`.gitignore`（`demo_data/out/`）、DECISIONS。
+
+**檢查：**
+
+- 測試全部通過：
+  - voice_bot 21 項。
+  - discord_bot 24 項。
+  - demo_data 3 項。
+  - ai_demo 12 項。
+  - meeting_ai 26 項（2 項略過）。
+  - voice_stt 30 項。
+- 用 main 上的 `Demo_Script.md` 實際產生假資料庫：
+  - `try_readers.py` 的 7 個例子都正確，包括允許、拒絕、找不到、無法確認。
+  - `ai_demo tasks` 用 Claude Code 跑文字會議，得到 1 項正式任務和 10 項提案。
+- bot 已重開，跑的是新程式。
+
+**尚未驗證：** 在 Discord 上實際試追蹤按鈕、私訊、回報，以及 AC23、AC26 的新檢查。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］

@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 
 import { RecordController, recordCommand } from './commands.js';
 import { MeetingController, meetingCommand } from './meetings.js';
+import { AiController, aiCommand } from './ai.js';
 import { BOT_ROOT, USAGE, argsToEnv, loadConfig } from './config.js';
 
 dotenv.config({ path: path.join(BOT_ROOT, '.env'), quiet: true });
@@ -33,15 +34,16 @@ try {
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
 const controller = new RecordController(client, config);
 const meetings = new MeetingController(client, config);
+const ai = new AiController(client, config);
 // Same command as the text bot's /ping, so the merged bot (team_bot) keeps it.
 const pingCommand = new SlashCommandBuilder().setName('ping').setDescription('確認 bot 在線上');
 
 client.once(Events.ClientReady, async (ready) => {
   const guild = await ready.guilds.fetch(config.guildId);
   // This process is the only one that registers commands (the merged text logger registers none).
-  await guild.commands.set([recordCommand.toJSON(), meetingCommand.toJSON(), pingCommand.toJSON()]);
+  await guild.commands.set([recordCommand.toJSON(), meetingCommand.toJSON(), aiCommand.toJSON(), pingCommand.toJSON()]);
   await meetings.load();
-  console.log(`語音錄音 bot 已上線：${ready.user.tag}，服務伺服器 ${guild.name}（/record、/meeting、/ping 指令已註冊）`);
+  console.log(`語音錄音 bot 已上線：${ready.user.tag}，服務伺服器 ${guild.name}（/record、/meeting、/ai、/ping 指令已註冊）`);
   const app = await ready.application.fetch();
   const content = ApplicationFlagsBitField.Flags;
   if (!app.flags.any(content.GatewayMessageContent | content.GatewayMessageContentLimited)) {
@@ -57,14 +59,23 @@ client.once(Events.ClientReady, async (ready) => {
 });
 
 client.on(Events.InteractionCreate, (interaction) => {
-  if (interaction.guildId !== config.guildId) return;
+  // Progress buttons arrive in DMs (no server); everything else only from this server.
+  const dmProgress = !interaction.guildId && interaction.isButton() && interaction.customId.startsWith('progress:');
+  if (interaction.guildId !== config.guildId && !dmProgress) return;
+  if (interaction.isAutocomplete() && interaction.commandName === 'ai') {
+    ai.autocomplete(interaction).catch((error) => console.error('[AI] 自動完成失敗：', error.message));
+    return;
+  }
   const command = interaction.isChatInputCommand() ? interaction.commandName : null;
-  const work =
-    command === 'meeting'
-      ? meetings.handle(interaction)
-      : command === 'ping'
-        ? interaction.reply('Pong! 🏓')
-        : controller.handle(interaction);
+  const handlers = {
+    meeting: () => meetings.handle(interaction),
+    ai: () => ai.handle(interaction),
+    ping: () => interaction.reply('Pong! 🏓'),
+  };
+  const aiButton = interaction.isButton() && /^(track|progress):/.test(interaction.customId);
+  const work = aiButton
+    ? ai.button(interaction)
+    : (handlers[command] ?? (() => controller.handle(interaction)))(); // /record and its buttons
   work.catch(async (error) => {
     console.error('[指令] 失敗：', error);
     const reply = { content: `出錯了：${error.message}`, flags: 64 };

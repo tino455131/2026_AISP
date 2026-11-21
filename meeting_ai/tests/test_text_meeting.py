@@ -54,6 +54,18 @@ def test_messages_become_numbered_lines_with_author_labels():
     assert source[2] == "900000000000000020"
 
 
+def test_someone_only_mentioned_still_gets_a_label():
+    messages = [
+        {"message_id": "1", "author_id": "333", "name": "組長A", "created_at": "2026-11-21T06:01:00+00:00",
+         "text": "<@555> 負責寫報告，11/25 前完成", "mentions": [{"id": "555", "name": "E"}]},
+        {"message_id": "2", "author_id": "555", "name": "E", "created_at": "2026-11-21T06:02:00+00:00", "text": "好"},
+    ]
+    lines, names, user_of, _ = build_text_lines(messages)
+    assert lines[0].text == "@E（S2） 負責寫報告，11/25 前完成"
+    assert lines[1].speaker == "S2"  # the same person keeps the same label when they speak
+    assert names == {"S1": "組長A", "S2": "E"} and user_of["S2"] == "555"
+
+
 def test_summary_is_saved_with_sources_and_owners_become_mentions(tmp_path):
     store = TextMeetingStore(tmp_path / "messages.sqlite3")
     fake = FakeSummarizer()

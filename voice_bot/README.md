@@ -72,6 +72,7 @@ npm start -- --summarizer openai --stt openai
 | 「繼續錄我」按鈕 | 任何人 | 按錯「不要錄我」時，從現在起恢復錄你 |
 | `/record status` | 任何人 | 看錄了多久、正在錄哪些人 |
 | `/meeting start`、`/meeting end` | 組長 | 文字會議：結束後在同一個頻道貼出會議紀錄（見 [team_bot](../team_bot/README.md)） |
+| `/ai tasks`、`/ai ask` | 看得到那場會議頻道的人 | 【測試】用 AI 整理任務或問問題，只有你看得到（見 [ai_demo](../ai_demo/README.md)） |
 | `/ping` | 任何人 | 確認 bot 在線上 |
 | `/record stop` | 組長 | 停止錄音 → 轉文字 → 摘要，頻道裡那則訊息會隨進度更新 |
 | 「查看摘要」「查看逐字稿」按鈕 | 看得到這個語音頻道的人（沒參加會議也可以） | 只有按的人看得到；約 5 秒，太長時改成附件 |

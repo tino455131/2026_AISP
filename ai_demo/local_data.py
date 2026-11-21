@@ -12,8 +12,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Iterator
+
+from meeting_ai.summarize_text_meeting import MENTION, build_text_lines
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB = REPO_ROOT / "discord_bot" / "data" / "messages.sqlite3"
@@ -58,10 +62,14 @@ class LocalData:
         if not self.db.is_file():
             raise FileNotFoundError(f"找不到資料庫 {self.db}")
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(f"file:{self.db.as_posix()}?mode=ro", uri=True)  # read-only
         connection.row_factory = sqlite3.Row
-        return connection
+        try:
+            yield connection
+        finally:
+            connection.close()  # "with sqlite3.connect()" alone never closes; Windows then keeps the file locked
 
     def _tables(self, connection) -> set[str]:
         return {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
@@ -81,17 +89,25 @@ class LocalData:
                     out.append({"meeting_id": row[0], "kind": "voice", "channel_id": row[1], "started_at": row[2],
                                 "line_count": row[3], "has_summary": bool(row[4])})
             if "text_meetings" in tables:
-                for row in connection.execute("SELECT meeting_id, channel_id, started_at, message_count FROM text_meetings"):
+                for row in connection.execute(
+                    "SELECT meeting_id, channel_id, started_at, message_count, start_message_id, end_message_id FROM text_meetings"
+                ):
                     out.append({"meeting_id": row[0], "kind": "text", "channel_id": row[1], "started_at": row[2],
-                                "line_count": row[3], "has_summary": True})
+                                "line_count": row[3], "has_summary": True,
+                                # the bot reads the original messages between these two from Discord
+                                "start_message_id": row[4], "end_message_id": row[5]})
         return sorted(out, key=lambda m: m["started_at"], reverse=True)
 
-    def meeting(self, meeting_id: str) -> MeetingRecord:
-        """Raises LookupError when there is no such meeting (spec: NOT_FOUND)."""
+    def meeting(self, meeting_id: str, messages: list[dict] | None = None) -> MeetingRecord:
+        """Raises LookupError when there is no such meeting (spec: NOT_FOUND).
+
+        For a text meeting, `messages` are its original messages read from Discord by the bot
+        (same shape as for summarize_text_meeting); without them the stored ones or the summary are used.
+        """
         with self._connect() as connection:
             tables = self._tables(connection)
             if meeting_id.startswith("mtg-") and "text_meetings" in tables:
-                return self._text(connection, tables, meeting_id)
+                return self._text(connection, tables, meeting_id, messages)
             if "voice_sessions" in tables:
                 return self._voice(connection, meeting_id)
         raise LookupError(meeting_id)
@@ -132,32 +148,42 @@ class LocalData:
         names = json.loads(manifest.read_text(encoding="utf-8")).get("names", {})
         return {label: names[str(uid)] for label, uid in speakers.items() if str(uid) in names}
 
-    def _text(self, connection, tables: set[str], meeting_id: str) -> MeetingRecord:
+    def _text(self, connection, tables: set[str], meeting_id: str, messages: list[dict] | None) -> MeetingRecord:
         row = connection.execute("SELECT * FROM text_meetings WHERE meeting_id = ?", (meeting_id,)).fetchone()
         if row is None:
             raise LookupError(meeting_id)
         speakers = {label: int(uid) for label, uid in json.loads(row["speakers"]).items()}
         summary = json.loads(row["summary"])
+        names: dict[str, str] = {}
         lines = []
-        if "messages" in tables:  # only when the text logger was running during the meeting
-            messages = connection.execute(
-                """SELECT * FROM messages WHERE guild_id = ? AND channel_id = ?
-                   AND message_id > ? AND message_id < ? ORDER BY message_id""",
-                (row["guild_id"], row["channel_id"], row["start_message_id"], row["end_message_id"]),
-            ).fetchall()
-            for number, message in enumerate(messages, start=1):
-                label = next((k for k, v in speakers.items() if v == message["author_id"]), None)
-                if label is None:  # e.g. a bot message: not part of the meeting
-                    continue
-                lines.append(SourceLine(
-                    len(lines) + 1, label, message["author_id"], message["created_at"], " ".join(message["content"].split()),
-                    source_ref={"kind": "message", "channel_id": row["channel_id"], "message_id": message["message_id"]},
-                ))
+        from_table = not messages and "messages" in tables
+        if from_table:  # only when the text logger was running during the meeting
+            people = set(speakers.values())  # who wrote or was @mentioned; anyone else (a bot) was not in it
+            messages = [
+                {"message_id": m["message_id"], "author_id": m["author_id"], "created_at": m["created_at"],
+                 "text": m["content"], "mentions": [{"id": found} for found in MENTION.findall(m["content"])]}
+                for m in connection.execute(
+                    """SELECT * FROM messages WHERE guild_id = ? AND channel_id = ?
+                       AND message_id > ? AND message_id < ? ORDER BY message_id""",
+                    (row["guild_id"], row["channel_id"], row["start_message_id"], row["end_message_id"]),
+                )
+                if m["author_id"] in people
+            ]
+        if messages:  # same labels as the summary, "<@id>" becomes "@名字（S3）"
+            built, names, user_of, source = build_text_lines(messages)
+            if from_table:
+                names = {}  # the messages table keeps no display names, only ids
+            speakers = {label: int(uid) for label, uid in user_of.items()}
+            lines = [
+                SourceLine(line.line_id, line.speaker, speakers[line.speaker], line.started_at, line.text,
+                           source_ref={"kind": "message", "channel_id": row["channel_id"], "message_id": source[line.line_id]})
+                for line in built
+            ]
         if not lines:
             lines = summary_lines(meeting_id, summary, speakers)
         return MeetingRecord(
             meeting_id, "text", row["guild_id"], row["channel_id"], row["started_by"],
-            row["started_at"], row["ended_at"], tuple(lines), summary, {}, speakers,
+            row["started_at"], row["ended_at"], tuple(lines), summary, names, speakers,
         )
 
 

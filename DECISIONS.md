@@ -319,3 +319,91 @@
 - OpenAI 的摘要和語音辨識都沒有實際呼叫過（沒有 API key，而且要付費）。
 
 **Led by:** Ping3227
+
+## 2026-11-21 — 新增 Discord 測試指令 /ai，讓 bot 直接呼叫 AI 單元
+
+**Decision:**
+
+- voice_bot 新增 `/ai tasks` 和 `/ai ask`，標成測試，背後呼叫 `ai_demo`。
+- 會議選項可以打字搜尋，只列出下指令的人看得到的頻道裡的會議。
+- 讀資料前，bot 先確認這個人看得到會議的頻道（檢視頻道＋讀取訊息歷史，spec R15）。判斷結果照 spec 的 `AccessDecision`：`allow`、`deny`、`unknown`，`unknown` 不放行。
+- 結果只回給下指令的人（ephemeral）。被拒的情況照 spec 回 `ACCESS_DENIED_USER`、`PERMISSION_UNVERIFIED`、`NOT_FOUND` 的訊息。
+- `ai_demo` 新增 `--bot` 模式：只印一行 `RESULT {json}`，Discord ID 一律用字串。
+- `ai_demo` 沒指定 AI 來源時，跟著目前的摘要器（simple 除外），所以 `--summarizer openai` 會一起套用到 `/ai`。
+- 程式由 AI（Claude）協助撰寫，見 `PROMPT_LOG.md`。
+
+**Why:**
+
+- 使用者想直接在 Discord 跟 bot 互動來測試 AI 單元，不用開終端機。
+- `ai_demo` 本身不檢查權限，所以由 bot 在讀資料前補上權限檢查，結果也只給本人看。
+
+**Alternative rejected:**
+
+- 結果貼在頻道裡：會把 AI 整理的內容公開，spec R16 要求跨來源的回答改用私訊。
+- 讓 `ai_demo` 自己連 Discord 查權限：每次要多登入一次（像查看按鈕那樣要幾秒），bot 本身已經有伺服器和成員的資料。
+
+**Led by:** Ping3227
+
+## 2026-11-21 — 測試版「要不要追蹤進度」；/ai 讀文字會議時當場向 Discord 讀原文
+
+**Decision:**
+
+- `/ai tasks` 有正式任務時，提供「追蹤進度」按鈕，標成測試。
+  - 只有下指令的組長能確認；確認的就是當時顯示的那幾項，按一次就失效。
+  - 負責人看得到來源頻道才私訊詢問，看不到就等組長決定（R18）。私訊失敗不改公開發布（R10）。
+  - 負責人用按鈕回報四種狀態之一，bot 再私訊通知看得到來源頻道的組長。
+- 資料存在 `demo_tasks`、`demo_inquiries`、`demo_progress_updates`。名稱和狀態值照 spec 的 Task、Inquiry、ProgressUpdate、Delivery。
+- `/ai` 遇到文字會議時，bot 當場向 Discord 讀原文交給 ai_demo，不另外保存。被 @ 的人也會有代號，所以認得出負責人。
+- 新增 `docs/database_schema.md`：資料庫架構圖，以及每個功能讀寫哪些表。
+- 程式由 AI（Claude）協助撰寫，見 `PROMPT_LOG.md`。
+
+**Why:**
+
+- 使用者想先有一個簡單的「詢問是否要追蹤進度」來測試流程。
+- 原本文字會議沒存原文，`/ai` 只能看摘要，組長的明確指派認不出來，永遠不會有正式任務。
+
+**Alternative rejected:**
+
+- 把會議原文存進資料庫：違反 spec「一般聊天不長期完整保存」，而且 spec 本來就要求按需讀取。
+- 組長按下去後讓 AI 重新整理一次：spec 規定確認的是固定的版本，不能讓模型改寫後直接執行。
+
+**Open questions:**
+
+- 正式版要有排程提醒、追問、可發訊息時段、取消和改期限（R09、R10）。這是 AI 組的部分。
+
+**Led by:** Ping3227
+
+## 2026-11-21 — 給 AI 組用假資料庫和讀取介面測試，不 push 真資料、不開 SQL API
+
+**Decision:**
+
+- 新增 `demo_data/`：用 `Demo_Script.md` 產生和真的 bot 資料庫同樣結構的假資料庫，以及不用連 Discord 的 `FakeAccess`。
+- AI 組的 tool 一律透過讀取介面拿資料（`AuthorizedTranscriptReader`、`AuthorizedMessageReader`）。開發時用 `FakeAccess`，正式時換成 `ChannelAccess`，其他程式不改。
+- 新增 `docs/ai_team_guide.md`：怎麼在自己電腦和 Discord 上測，以及對照 spec v1.1 的結果。
+- 對照 spec 後修正 6 處：
+  - 回報完成後負責人不能再改。
+  - 按鈕回報後詢問結案。
+  - 結果不明的私訊記 `delivery_unknown`。
+  - Bot 讀不到來源時回 `SOURCE_UNAVAILABLE_BOT`。
+  - 送出前再確認權限（AC23）。
+  - 私人討論串要確認成員（AC26）。
+- 程式由 AI（Claude）協助撰寫，見 `PROMPT_LOG.md`。
+
+**Why:**
+
+- 有人提議 push 含真實語音資料的 SQLite，再開一個可以直接下 SQL 的 API，讓 AI 組先測 tool。
+- repo 是公開的，push 真資料等於公開，而且撤不回來；組員同意的是錄音和摘要，不是公開。
+- 直接下 SQL 會跳過權限檢查（spec R15），也要把主機開放對外連線。
+- 最後所有程式都跑在同一台主機上，同一個 Python 介面就夠了。
+
+**Alternative rejected:**
+
+- push 真資料庫：隱私問題，而且 `.gitignore` 本來就刻意擋掉。
+- 開放可以下 SQL 的網路 API：跳過權限檢查；表結構一改，AI 組的程式就會壞。
+- 私下傳真資料：只有在需要真實辨識錯誤時才考慮，要所有說話的人同意，用完刪除，也不進 git。
+
+**Open questions:**
+
+- 指南「和 spec 不一樣」那一節要團隊決定：語音、文字記錄長期保存、組長怎麼設定、`team_id`、時區、`/meeting end` 的紀錄格式。
+
+**Led by:** Ping3227

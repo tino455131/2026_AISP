@@ -119,6 +119,24 @@ def test_command_line_list_and_missing_meeting(db, capsys):
     assert "NOT_FOUND" in capsys.readouterr().out
 
 
+def test_bot_mode_prints_one_result_line_with_ids_as_strings(db, capsys, monkeypatch):
+    def run(*args):
+        assert cli.main(["--bot", "--db", str(db.db), *args]) == 0
+        out = capsys.readouterr().out.strip().splitlines()
+        assert len(out) == 1 and out[0].startswith("RESULT ")
+        return json.loads(out[0][len("RESULT "):])
+
+    assert {m["meeting_id"] for m in run("list")["meetings"]} == {"rec-1", "mtg-10-1"}
+    assert run("show", "rec-nope")["error_code"] == "NOT_FOUND"
+    fake = FakeAI(answer={"found": True, "answer": "C", "source_line_ids": [1]})
+    monkeypatch.setattr(cli, "get_engine", lambda name: fake)
+    answer = run("ask", "rec-1", "誰負責小考？")
+    assert answer["ok"] and answer["meeting"]["channel_id"] == 10
+    assert cli._safe_ids({"user": 702000000000000000, "n": 5, "flag": True}) == {
+        "user": "702000000000000000", "n": 5, "flag": True,
+    }
+
+
 def test_database_is_opened_read_only(db):
     with pytest.raises(sqlite3.OperationalError):
         with db._connect() as connection:

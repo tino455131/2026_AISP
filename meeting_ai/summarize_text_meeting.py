@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,23 +27,39 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB = REPO_ROOT / "discord_bot" / "data" / "messages.sqlite3"
 
 
+MENTION = re.compile(r"<@!?(\d+)>")
+
+
 def build_text_lines(messages: list[dict]):
-    """Messages -> (lines, label->name, label->author id, line id->message id).
+    """Messages -> (lines, label->name, label->user id, line id->message id).
 
     Lines are numbered 1, 2, 3… (short numbers for the model); the map keeps the real message ids.
-    Authors get labels S1, S2… in order of first message, like voice speakers.
+    People get labels S1, S2… in order of appearance, like voice speakers. Someone who is only
+    @mentioned gets a label too, and "<@id>" in the text becomes "@名字（S3）", so the model can
+    name them as an owner instead of guessing from a name (each message may carry
+    "mentions": [{"id", "name"}]).
     """
     label_of: dict[str, str] = {}
     names: dict[str, str] = {}
+
+    def label(user_id, name) -> str:
+        found = label_of.setdefault(str(user_id), f"S{len(label_of) + 1}")
+        names.setdefault(found, str(name or user_id))
+        return found
+
     lines, source = [], {}
     for number, message in enumerate(messages, start=1):
-        author = str(message["author_id"])
-        label = label_of.setdefault(author, f"S{len(label_of) + 1}")
-        names.setdefault(label, str(message.get("name") or author))
-        text = " ".join(str(message["text"]).split())  # one line per message, as the prompt expects
-        lines.append(MeetingLine(number, label, message["created_at"], text))
+        speaker = label(message["author_id"], message.get("name"))
+        mentioned = {str(m["id"]): m.get("name") for m in message.get("mentions", [])}
+
+        def name_it(match: re.Match) -> str:
+            found = label(match.group(1), mentioned.get(match.group(1)))
+            return f"@{names[found]}（{found}）"
+
+        text = MENTION.sub(name_it, " ".join(str(message["text"]).split()))  # one line per message
+        lines.append(MeetingLine(number, speaker, message["created_at"], text))
         source[number] = str(message["message_id"])
-    return lines, names, {label: author for author, label in label_of.items()}, source
+    return lines, names, {found: user for user, found in label_of.items()}, source
 
 
 def summarize_text_meeting(store: TextMeetingStore, meeting: dict, summarizer: MeetingSummarizer) -> dict:

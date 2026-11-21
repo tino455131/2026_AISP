@@ -63,6 +63,11 @@ export function runTextMeeting({ python, repoRoot, botDb, meeting }) {
   return runPython(python, args, repoRoot, {}, JSON.stringify(meeting));
 }
 
+/** /ai (test): run ai_demo in bot mode; resolves its RESULT object ({ok, …} or {ok: false, error_code, message}). */
+export function runAiDemo({ python, repoRoot, botDb, recordingsDir, args, input = null }) {
+  return runPython(python, ['-m', 'ai_demo', '--bot', '--db', botDb, '--recordings', recordingsDir, ...args], repoRoot, {}, input);
+}
+
 export function runShow({ python, repoRoot, botDb, token, sessionId, memberId, guildId, what }) {
   const args = ['-m', 'meeting_ai.show_session', sessionId, '--member', memberId, '--guild-id', guildId];
   args.push('--what', what, '--db', botDb);

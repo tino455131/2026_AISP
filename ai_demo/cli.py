@@ -19,6 +19,7 @@ from .ask import ask
 from .engine import get_engine
 from .local_data import DEFAULT_DB, DEFAULT_RECORDINGS, LocalData
 from .tasks import propose_tasks
+from .tracking import TrackingError, TrackingStore
 
 BANNER = "【測試用】ai_demo：直接讀本機資料庫、不檢查 Discord 權限，結果不要直接貼給別人。"
 MISSING = {
@@ -48,8 +49,68 @@ def _print_tasks(record, result) -> None:
         print(f"\n（有 {result['rejected']} 項沒有可對照的依據，已丟掉）")
 
 
+def _safe_ids(value):
+    """Discord ids do not fit in a JavaScript number; send big integers as strings."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and abs(value) >= 2**53:
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _safe_ids(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_safe_ids(item) for item in value]
+    return value
+
+
+TRACKING = ("track", "inquiry", "progress", "tracked")
+
+
+def _tracking(args, payload: dict) -> dict:
+    store = TrackingStore(Path(args.db))
+    try:
+        if args.command == "track":
+            return {"ok": True, "tasks": store.create_tasks(payload)}
+        if args.command == "inquiry":
+            return {"ok": True, "inquiry_id": store.record_inquiry(args.task, int(args.owner), args.delivery, args.message)}
+        if args.command == "progress":
+            return {"ok": True, "task": store.record_progress(args.task, int(args.user), args.status)}
+        return {"ok": True, "tasks": store.tasks(int(args.guild))}
+    except TrackingError as exc:
+        return {"ok": False, "error_code": exc.error_code, "message": str(exc)}
+
+
+def _for_bot(args) -> dict:
+    # --stdin: a JSON object from voice_bot (a confirmation for "track", {"messages": […]} for a text meeting)
+    payload = json.loads(sys.stdin.read() or "{}") if args.stdin else {}
+    if args.command in TRACKING:
+        return _tracking(args, payload)
+    try:
+        data = LocalData(Path(args.db), Path(args.recordings))
+        if args.command == "list":
+            return {"ok": True, "meetings": data.meetings()}
+        record = data.meeting(args.meeting_id, payload.get("messages"))
+    except (LookupError, FileNotFoundError):
+        return {"ok": False, "error_code": "NOT_FOUND", "message": "沒有找到符合條件的資料。"}
+    meeting = {
+        "meeting_id": record.meeting_id, "kind": record.kind, "channel_id": record.channel_id,
+        "started_at": record.started_at, "started_by": record.started_by, "line_count": len(record.lines),
+    }
+    if args.command == "show":
+        return {"ok": True, "meeting": meeting}
+    try:
+        engine = get_engine(args.ai)
+        if args.command == "tasks":
+            leader = int(args.leader) if args.leader else record.started_by
+            return {"ok": True, "meeting": meeting, "leader_user_id": leader, **propose_tasks(record, leader, engine, args.tz)}
+        return {**ask(record, args.question, engine), "meeting": meeting}
+    except ValueError as exc:
+        return {"ok": False, "error_code": "INVALID_ARGUMENT", "message": str(exc)}
+    except Exception as exc:  # the AI service failed (SummaryError, network, …)
+        return {"ok": False, "error_code": "UPSTREAM_UNAVAILABLE", "message": f"AI 暫時無法使用：{exc}"}
+
+
 def main(argv: list[str] | None = None) -> int:
-    for stream in (sys.stdout, sys.stderr):
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
 
@@ -58,6 +119,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--recordings", default=str(DEFAULT_RECORDINGS), help="voice_bot 的錄音資料夾（拿顯示名稱）")
     p.add_argument("--ai", help="claude-code（預設）、claude、openai 或 模組:類別")
     p.add_argument("--json", action="store_true", help="印出原始結果")
+    p.add_argument("--bot", action="store_true", help="給 voice_bot 呼叫：只印一行 RESULT {json}")
+    p.add_argument("--stdin", action="store_true", help="從標準輸入讀 JSON（voice_bot 用）")
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("list", help="列出所有會議")
     show = sub.add_parser("show", help="看一場會議的內容")
@@ -69,7 +132,27 @@ def main(argv: list[str] | None = None) -> int:
     question = sub.add_parser("ask", help="問這場會議的問題")
     question.add_argument("meeting_id")
     question.add_argument("question")
+    track = sub.add_parser("track", help="【追蹤】組長確認的任務存起來（--stdin 給確認內容）")
+    track.set_defaults(meeting_id=None)
+    inquiry = sub.add_parser("inquiry", help="【追蹤】記下一次詢問送出了沒")
+    inquiry.add_argument("--task", required=True)
+    inquiry.add_argument("--owner", required=True)
+    inquiry.add_argument("--delivery", choices=["sent", "delivery_failed", "delivery_unknown"], required=True)
+    inquiry.add_argument("--message")
+    progress = sub.add_parser("progress", help="【追蹤】負責人回報進度")
+    progress.add_argument("--task", required=True)
+    progress.add_argument("--user", required=True)
+    progress.add_argument("--status", required=True)
+    tracked = sub.add_parser("tracked", help="【追蹤】列出追蹤中的任務")
+    tracked.add_argument("--guild", required=True)
     args = p.parse_args(argv)
+
+    if args.command in TRACKING and not args.bot:
+        print(json.dumps(_safe_ids(_for_bot(args)), ensure_ascii=False, indent=2))
+        return 0
+    if args.bot:  # Discord's /ai command: one machine-readable line, errors as spec error codes
+        print("RESULT " + json.dumps(_safe_ids(_for_bot(args)), ensure_ascii=False))
+        return 0
 
     print(BANNER, file=sys.stderr)
     data = LocalData(Path(args.db), Path(args.recordings))

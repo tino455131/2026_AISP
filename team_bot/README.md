@@ -46,6 +46,7 @@ node team_bot/start.mjs
 | `/meeting end` | 組長 | 結束會議：讀這段期間的發言（bot 的訊息不算），交給摘要器，在同一個頻道貼出會議紀錄 |
 | `/meeting status` | 任何人 | 看這個頻道有沒有進行中的會議 |
 | `/record …` | 見 [voice_bot](../voice_bot/README.md) | 語音錄音 |
+| `/ai tasks`、`/ai ask` | 看得到那場會議頻道的人 | 【測試】AI 整理任務、問會議問題，結果只有你看得到（見 [ai_demo](../ai_demo/README.md)） |
 | `/ping` | 任何人 | 確認 bot 在線上 |
 
 組長的判斷和 `/record` 一樣：`LEADER_ROLE_ID` 身分組，沒設的話是有「管理伺服器」權限的人。

@@ -38,6 +38,11 @@ export function toMeetingMessage(message) {
     name: message.member?.displayName ?? message.author.globalName ?? message.author.username,
     created_at: message.createdAt.toISOString(),
     text: message.content ?? '',
+    // People @mentioned in the message, so meeting_ai can label them even if they never wrote.
+    mentions: [...(message.mentions?.users?.values() ?? [])].map((user) => ({
+      id: user.id,
+      name: message.mentions.members?.get(user.id)?.displayName ?? user.globalName ?? user.username,
+    })),
     bot: Boolean(message.author.bot || message.webhookId),
     system: Boolean(message.system),
   };
@@ -55,6 +60,26 @@ export function pickMeetingMessages(messages, { afterId, beforeId }) {
     .filter((m) => !m.bot && !m.system && m.text.trim())
     .sort((a, b) => (BigInt(a.message_id) < BigInt(b.message_id) ? -1 : 1))
     .map(({ bot, system, ...rest }) => rest); // eslint-disable-line no-unused-vars
+}
+
+/**
+ * Every message between the two boundaries, read from Discord 100 at a time (spec: read the
+ * readable history on demand). Used at /meeting end, and again by /ai so the original text
+ * does not have to be stored.
+ */
+export async function readMeetingMessages(channel, startId, endId) {
+  const collected = [];
+  let after = startId;
+  for (;;) {
+    const batch = [...(await channel.messages.fetch({ after, limit: 100 })).values()].map(toMeetingMessage);
+    if (batch.length === 0) break;
+    collected.push(...batch);
+    const newest = batch.reduce((max, m) => (BigInt(m.message_id) > BigInt(max) ? m.message_id : max), after);
+    if (BigInt(newest) >= BigInt(endId) || batch.length < 100) break;
+    after = newest;
+  }
+  const messages = pickMeetingMessages(collected, { afterId: startId, beforeId: endId });
+  return { messages: messages.slice(0, MAX_MESSAGES), truncated: messages.length > MAX_MESSAGES };
 }
 
 /** The text of the record posted when the meeting ends. */
@@ -195,20 +220,8 @@ export class MeetingController {
     }
   }
 
-  /** Every message between the two boundaries, read from Discord 100 at a time. */
   async #readMeeting(channel, startId, endId) {
-    const collected = [];
-    let after = startId;
-    for (;;) {
-      const batch = [...(await channel.messages.fetch({ after, limit: 100 })).values()].map(toMeetingMessage);
-      if (batch.length === 0) break;
-      collected.push(...batch);
-      const newest = batch.reduce((max, m) => (BigInt(m.message_id) > BigInt(max) ? m.message_id : max), after);
-      if (BigInt(newest) >= BigInt(endId) || batch.length < 100) break;
-      after = newest;
-    }
-    const messages = pickMeetingMessages(collected, { afterId: startId, beforeId: endId });
-    return { messages: messages.slice(0, MAX_MESSAGES), truncated: messages.length > MAX_MESSAGES };
+    return readMeetingMessages(channel, startId, endId);
   }
 
   async #status(interaction) {

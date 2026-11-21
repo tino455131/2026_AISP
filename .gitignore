@@ -33,3 +33,6 @@ models/
 Thumbs.db
 .vscode/
 .idea/
+
+# ---- Fake test data made by demo_data/make_demo_db.py ----------------------
+demo_data/out/
