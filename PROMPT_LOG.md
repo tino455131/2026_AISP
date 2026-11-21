@@ -792,3 +792,90 @@ AI 用選項確認後，使用者回答：
 **尚未驗證：** 實際連線 Discord、以真實音檔轉寫，以及實際呼叫 OpenAI 摘要 API。本機的語音 Bot Token 欄位仍待填寫。
 
 **我改了什麼、為什麼：** 將共用 API 與資料庫放在根目錄，讓各元件可以從同一個入口取得資料，也讓合作開發者能從文件找到正確用法。保留兩個 Python 環境以分開文字 Bot 與語音辨識的依賴，並集中設定，減少不同元件讀到不同路徑或憑證的機會。
+
+## 2026-11-22 — 說明檔補上語音和文字 bot 合併（Ping3227）
+
+**使用者原始要求：**
+
+> 阿你沒有寫voice 和text bot合併喔?
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**產出：** `docs/ai_team_guide.md`
+
+- 第一節總表加上合併版 bot（`team_bot/`）和文字訊息記錄。
+- 第四節說明一個 bot 內部跑兩支程式，以及 `node team_bot/start.mjs` 和 `npm start` 的差別（後者沒有文字記錄）。
+- 開頭的分支名稱改成 GitHub 上的 `ping-voice-tmp`。
+
+**檢查：** 內容對照 `team_bot/README.md`，只改文件，沒有改程式。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-22 — 說明檔擴寫語音 bot（Ping3227）
+
+**使用者原始要求：**
+
+> 你先擴寫一下voice bot 吧
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**產出：** `docs/ai_team_guide.md` 新增第二節「語音 bot：從錄音到你們拿得到資料」，後面各節往後編號。
+
+- 流程圖、什麼時候錄和錄誰。
+- 逐字稿的特性：說話的人是準的、句子怎麼切、時間、`text` 和 `text_raw`、`confidence`、四種 `flags`、名字放在哪。
+- 摘要格式、`is_stale`、誰看得到、資料在哪、限制。
+
+**檢查：** 數字和行為都對照程式確認過：`SILENCE_MS` 800、合併間隔 3 秒／最長 60 秒、最短 0.3 秒、自動錄音延遲 3 秒、flags 名稱、`session_id` 格式、摘要欄位。只改文件，沒有改程式。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-22 — 檢查皓元重構後的連接，統一到 team_bot（Ping3227）
+
+**使用者原始要求：** 轉貼皓元在 Discord 說的話：
+
+> 目前應該是爛的，主要是我把discord_bot名稱改成text_bot，並且根目錄下有sqlite_api，統一所有元件讀寫SQL的API
+> 我覺得可以的話，你讓AI檢查一遍確保各項連接沒問題，然後統一文字/語音功能到team_bot
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**做法：** 在另一個資料夾（worktree，分支 `ping/merge-fix`，從 `ping-voice-tmp-merge` 的 `42def15` 開始）檢查和修改，主機上原本的資料夾沒有動。
+
+**產出：**
+
+- `meeting_ai`：摘要器補回 `claude-code` 和「模組:類別」；`openai.py` 補 import、加 `generate()`；刪除重複的 `openai_summarizer.py` 和它的測試；測試補上 import。
+- `voice_bot`：`index.js` 改讀根目錄 `.env`；測試改用 `VOICE_BOT_TOKEN`；說明文字更新。
+- `team_bot`：`text_logger.py`、`start.mjs` 改用 `text_bot/`、`sqlite_api`、根目錄 `.env` 和 `VOICE_BOT_TOKEN`。
+- `ai_demo`、`demo_data`、`meeting_ai/summarize_text_meeting.py`：改用 `sqlite_api` 和新的資料庫路徑。
+- `.env.example`、根目錄 README、各資料夾 README、`docs/ai_team_guide.md`、`docs/database_schema.md`、DECISIONS。
+
+**檢查：**
+
+- 修改前：text_bot、voice_stt 通過；meeting_ai 7 項失敗、查看按鈕 3 項錯誤、voice_bot 4 項失敗，ai_demo 和 demo_data 無法載入。
+- 修改後全部通過：text_bot 34、查看按鈕 7、demo_data 3、voice_stt 30、meeting_ai 26（1 略過）、ai_demo 12、voice_bot 21。text_bot 的環境是照 SETUP 的方式另建的（`pip install -e .`）。
+- 實際跑 bot 會呼叫的程式：假資料庫、讀取介面 7 個例子、`ai_demo list/show`、摘要、三個 `--help` 都正常；`ai_demo tasks` 用 Claude Code 跑出 1 項正式任務和 10 項提案，和重構前一樣。
+
+**尚未驗證：** 在 Discord 上實際啟動合併版；主機上的資料庫和 `.env` 還沒搬到新位置；OpenAI 沒有實際呼叫。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-22 — 統一文字會議的資料庫存取和 OpenAI 提示詞（Ping3227）
+
+**使用者原始要求：**
+
+> 你能夠統一一下他們嗎，你有建議怎麼做嗎
+
+（指上一輪留下的兩件事：文字會議紀錄沒有走 `sqlite_api`、OpenAI 摘要用舊的提示詞。）
+
+**模型／工具：** Claude Opus 5.5（`claude-opus-5-5`），透過 Claude Code 桌面版
+
+**產出：**
+
+- `sqlite_api.py`：新增 `text_meetings` 表、`save_text_meeting()`、`get_text_meeting()`；`delete_channel`、`delete_guild` 一起刪文字會議紀錄。
+- 刪除 `meeting_ai/text_meeting_store.py`；`summarize_text_meeting.py`、`demo_data/make_demo_db.py` 和測試改用 `SQLiteStore`。
+- `meeting_ai/openai.py`：改繼承 `LLMSummarizer`，刪掉自己那份提示詞；`llm.py` 的 `PROMPT_VERSION` 改成 `meeting-3`。
+- 測試：`test_sqlite_api.py` 加文字會議的存取和刪除；`test_meeting_ai.py` 加「OpenAI 用共用提示詞」和 `generate()`。
+- 文件：`SQL_API_README.md`、`docs/database_schema.md`、`meeting_ai/README.md`、DECISIONS。
+
+**檢查：** 全部通過：text_bot 35、查看按鈕 7、demo_data 3、voice_stt 30、meeting_ai 27（1 略過）、ai_demo 12、voice_bot 21。重新產生假資料庫後，文字會議紀錄可以從 `get_text_meeting()` 讀回來，`try_readers` 7 個例子和 `ai_demo list` 都正常。
+
+**我改了什麼、為什麼：** ［待 Ping3227 填寫］

@@ -1,4 +1,4 @@
-"""Shared SQLite API for Discord text messages, voice transcripts, and summaries.
+"""Shared SQLite API for Discord text messages, voice transcripts, summaries, and text meetings.
 
 All SQL reads and writes live here. User-facing reads must go through the
 Discord permission readers in channel_access.py or transcript_reader.py.
@@ -20,7 +20,7 @@ import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Any, Iterable, Iterator, Mapping
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -230,6 +230,29 @@ class SQLiteStore:
                     source_line_count INTEGER NOT NULL,
                     created_at TEXT NOT NULL
                 )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS text_meetings (
+                    meeting_id TEXT PRIMARY KEY,
+                    guild_id INTEGER NOT NULL,
+                    channel_id INTEGER NOT NULL,
+                    started_by INTEGER NOT NULL,
+                    started_at TEXT NOT NULL,
+                    ended_at TEXT NOT NULL,
+                    start_message_id INTEGER NOT NULL,
+                    end_message_id INTEGER NOT NULL,
+                    message_count INTEGER NOT NULL,
+                    summary TEXT NOT NULL,
+                    source_message_ids TEXT NOT NULL,
+                    speakers TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    prompt_version TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )"""
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS text_meetings_by_channel "
+                "ON text_meetings (guild_id, channel_id, started_at)"
             )
 
     @contextmanager
@@ -581,7 +604,7 @@ class SQLiteStore:
             self._delete_sessions(connection, "session_id = ?", (session_id,))
 
     def delete_channel(self, guild_id: int, channel_id: int) -> None:
-        """Remove saved messages, the resume point, and voice data for one channel.
+        """Remove saved messages, the resume point, voice data, and text meetings for one channel.
 
         Args:
             guild_id: Discord server ID.
@@ -600,9 +623,13 @@ class SQLiteStore:
                 (guild_id, channel_id),
             )
             self._delete_sessions(connection, "guild_id = ? AND channel_id = ?", (guild_id, channel_id))
+            connection.execute(
+                "DELETE FROM text_meetings WHERE guild_id = ? AND channel_id = ?",
+                (guild_id, channel_id),
+            )
 
     def delete_guild(self, guild_id: int) -> None:
-        """Remove saved text, voice data, and import and deletion markers for a server.
+        """Remove saved text, voice data, text meetings, and import and deletion markers for a server.
 
         Args:
             guild_id: Discord server ID.
@@ -615,6 +642,59 @@ class SQLiteStore:
             connection.execute("DELETE FROM backfill_state WHERE guild_id = ?", (guild_id,))
             connection.execute("DELETE FROM deleted_messages WHERE guild_id = ?", (guild_id,))
             self._delete_sessions(connection, "guild_id = ?", (guild_id,))
+            connection.execute("DELETE FROM text_meetings WHERE guild_id = ?", (guild_id,))
+
+    # Text meeting records (/meeting end).
+
+    def save_text_meeting(self, record: Mapping[str, Any]) -> None:
+        """Insert or replace one text meeting record.
+
+        Only the meeting's range, its summary, and the message IDs each summary item
+        cites are kept, not the messages themselves (spec: ordinary chat is not kept
+        long term). Readers must be able to see the channel (spec R15).
+
+        Args:
+            record: Every column of text_meetings. `summary` is a dict or JSON text,
+                `source_message_ids` maps a line number to a message ID, and `speakers`
+                maps a label such as "S1" to an author ID.
+
+        Raises:
+            KeyError: A column is missing from `record`.
+            sqlite3.Error: SQLite could not complete the operation.
+        """
+        row = {column: record[column] for column in _TEXT_MEETING_COLUMNS}
+        if not isinstance(row["summary"], str):
+            row["summary"] = json.dumps(row["summary"], ensure_ascii=False)
+        row["source_message_ids"] = json.dumps(row["source_message_ids"])
+        row["speakers"] = json.dumps(row["speakers"])
+        columns = ", ".join(_TEXT_MEETING_COLUMNS)
+        marks = ", ".join(f":{column}" for column in _TEXT_MEETING_COLUMNS)
+        with self._connection() as connection:
+            connection.execute(f"INSERT OR REPLACE INTO text_meetings ({columns}) VALUES ({marks})", row)
+
+    def get_text_meeting(self, meeting_id: str) -> dict | None:
+        """Read one text meeting record.
+
+        Args:
+            meeting_id: ID such as "mtg-<channel>-<start message>".
+
+        Returns:
+            The record with `summary`, `source_message_ids` (int keys), and `speakers`
+            decoded from JSON, or None when no meeting has this ID.
+
+        Raises:
+            sqlite3.Error: SQLite could not complete the operation.
+        """
+        with self._connection() as connection:
+            connection.row_factory = sqlite3.Row
+            row = connection.execute("SELECT * FROM text_meetings WHERE meeting_id = ?", (meeting_id,)).fetchone()
+        if row is None:
+            return None
+        out = dict(row)
+        out["summary"] = json.loads(out["summary"])
+        out["source_message_ids"] = {int(k): v for k, v in json.loads(out["source_message_ids"]).items()}
+        out["speakers"] = json.loads(out["speakers"])
+        return out
 
     # Voice transcript and summary reads and helpers.
 
@@ -739,6 +819,13 @@ class SQLiteStore:
         ids = [row[0] for row in connection.execute(f"SELECT session_id FROM voice_sessions WHERE {where}", params)]
         for table in ("voice_lines", "voice_session_summaries", "voice_sessions"):
             connection.executemany(f"DELETE FROM {table} WHERE session_id = ?", ((i,) for i in ids))
+
+
+_TEXT_MEETING_COLUMNS = (
+    "meeting_id", "guild_id", "channel_id", "started_by", "started_at", "ended_at",
+    "start_message_id", "end_message_id", "message_count", "summary", "source_message_ids",
+    "speakers", "model", "prompt_version", "created_at",
+)
 
 __all__ = [
     "PROJECT_ROOT", "DEFAULT_DB", "resolve_database_path", "SQLiteStore", "SessionNotFound", "VoiceSession",

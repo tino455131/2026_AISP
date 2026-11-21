@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from meeting_ai import MeetingLine, MeetingSummary, SummaryError, get_summarizer, render_markdown
+from meeting_ai.llm import PROMPT_VERSION, SYSTEM_PROMPT
 from meeting_ai.openai import OpenAISummarizer, format_transcript
 from meeting_ai.simple import SimpleSummarizer
 from meeting_ai.summarize_session import summarize_session
@@ -98,14 +99,22 @@ def test_openai_summarizer_sends_transcript_and_parses_json(monkeypatch):
 
     call = fake.calls[0]
     assert call["model"] == summarizer.name == "gpt-6-luna"
-    assert summarizer.prompt_version == "openai-1"
+    assert summarizer.prompt_version == PROMPT_VERSION  # the shared prompt in llm.py
     assert call["text"]["format"]["type"] == "json_schema"
     assert call["text"]["format"]["strict"] is True
     assert call["text"]["format"]["schema"]["required"] == ["summary", "decisions", "action_items"]
     assert call["store"] is False
+    assert call["instructions"] == SYSTEM_PROMPT  # same rules as claude-code
     assert "[1] S1（組長）：大家好" in call["input"]
     assert "[4] S2：我來處理 token 的設定（可能聽錯）" in call["input"]
     assert summary.action_items[0].source_line_ids == (2,)  # 42 is not a real line
+
+
+def test_openai_generate_serves_other_ai_features():
+    fake = FakeOpenAI(text='{"answer": "C"}')
+    schema = {"type": "object", "properties": {"answer": {"type": "string"}}, "required": ["answer"]}
+    assert OpenAISummarizer(client=fake).generate("你是助理", "誰負責？", schema) == '{"answer": "C"}'
+    assert fake.calls[0]["instructions"] == "你是助理" and fake.calls[0]["text"]["format"]["schema"] == schema
 
 
 def test_openai_refusal_raises():
@@ -168,5 +177,5 @@ def test_summarize_session_saves_summary_with_mentions(tmp_path):
     result = summarize_session(store, "rec-1", openai_summarizer)
     saved = store.get_session_summary("rec-1")
     assert result["summarizer"] == saved.model == "gpt-6-luna"
-    assert saved.prompt_version == "openai-1"
+    assert saved.prompt_version == PROMPT_VERSION
     assert json.loads(saved.content)["summary"] == "確認明天上傳報告"

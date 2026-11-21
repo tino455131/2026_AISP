@@ -8,7 +8,7 @@ from meeting_ai import MeetingSummary
 from meeting_ai.interface import ActionItem, Decision
 from meeting_ai import summarize_text_meeting as module
 from meeting_ai.summarize_text_meeting import build_text_lines, summarize_text_meeting
-from meeting_ai.text_meeting_store import TextMeetingStore
+from sqlite_api import SQLiteStore
 
 MEETING = {
     "guild_id": "111111111111111111",
@@ -67,13 +67,13 @@ def test_someone_only_mentioned_still_gets_a_label():
 
 
 def test_summary_is_saved_with_sources_and_owners_become_mentions(tmp_path):
-    store = TextMeetingStore(tmp_path / "messages.sqlite3")
+    store = SQLiteStore(tmp_path / "messages.sqlite3")
     fake = FakeSummarizer()
     result = summarize_text_meeting(store, MEETING, fake)
 
     assert fake.seen[1] == {"S1": "組長A", "S2": "C"}
     assert "- <@444444444444444444>：完成第一份小考（下週五前）" in result["markdown"]
-    saved = store.get(result["meeting_id"])
+    saved = store.get_text_meeting(result["meeting_id"])
     assert saved["message_count"] == 3 and saved["model"] == "fake"
     assert saved["summary"]["decisions"][0]["source_line_ids"] == [1, 2]
     assert saved["source_message_ids"][1] == "900000000000000010"  # line 1 -> its Discord message

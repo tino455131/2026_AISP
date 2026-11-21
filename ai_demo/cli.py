@@ -1,23 +1,27 @@
 """【測試用】AI 功能示範：在 repo 根目錄執行
 
-    voice_stt/.venv/Scripts/python.exe -m ai_demo list
-    voice_stt/.venv/Scripts/python.exe -m ai_demo show <會議ID>
-    voice_stt/.venv/Scripts/python.exe -m ai_demo tasks <會議ID> [--leader <組長的 Discord ID>]
-    voice_stt/.venv/Scripts/python.exe -m ai_demo ask <會議ID> "問題"
+    voice_bot/voice_stt/.venv/Scripts/python.exe -m ai_demo list
+    voice_bot/voice_stt/.venv/Scripts/python.exe -m ai_demo show <會議ID>
+    voice_bot/voice_stt/.venv/Scripts/python.exe -m ai_demo tasks <會議ID> [--leader <組長的 Discord ID>]
+    voice_bot/voice_stt/.venv/Scripts/python.exe -m ai_demo ask <會議ID> "問題"
 
-共用選項：--db 資料庫、--ai claude-code|claude|openai|模組:類別、--json（印出原始結果）
+共用選項：--db 資料庫（預設是根目錄 .env 的 BOT_DB，沒填就是 data/messages.sqlite3）、
+--ai claude-code|openai|模組:類別、--json（印出原始結果）
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
+from sqlite_api import resolve_database_path
+
 from .ask import ask
 from .engine import get_engine
-from .local_data import DEFAULT_DB, DEFAULT_RECORDINGS, LocalData
+from .local_data import DEFAULT_RECORDINGS, LocalData
 from .tasks import propose_tasks
 from .tracking import TrackingError, TrackingStore
 
@@ -115,9 +119,9 @@ def main(argv: list[str] | None = None) -> int:
             stream.reconfigure(encoding="utf-8", errors="replace")
 
     p = argparse.ArgumentParser(prog="python -m ai_demo", description=BANNER)
-    p.add_argument("--db", default=str(DEFAULT_DB))
+    p.add_argument("--db", default=str(resolve_database_path(os.environ.get("BOT_DB"))))
     p.add_argument("--recordings", default=str(DEFAULT_RECORDINGS), help="voice_bot 的錄音資料夾（拿顯示名稱）")
-    p.add_argument("--ai", help="claude-code（預設）、claude、openai 或 模組:類別")
+    p.add_argument("--ai", help="claude-code（預設）、openai 或 模組:類別")
     p.add_argument("--json", action="store_true", help="印出原始結果")
     p.add_argument("--bot", action="store_true", help="給 voice_bot 呼叫：只印一行 RESULT {json}")
     p.add_argument("--stdin", action="store_true", help="從標準輸入讀 JSON（voice_bot 用）")

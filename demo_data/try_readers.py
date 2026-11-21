@@ -2,7 +2,7 @@
 
 在 repo 根目錄執行：
 
-    discord_bot/.venv/Scripts/python.exe demo_data/try_readers.py
+    text_bot/.venv/Scripts/python.exe demo_data/try_readers.py
 
 讀取介面每次讀之前都會先確認「這個人現在看不看得到來源頻道」（spec R15）。
 例外對應到 spec 的 ErrorCode：
@@ -20,20 +20,19 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path[:0] = [str(HERE), str(HERE.parent / "discord_bot")]
+sys.path[:0] = [str(HERE), str(HERE.parent), str(HERE.parent / "text_bot")]
 
 from channel_access import AccessDenied, AccessUnavailable, AuthorizedMessageReader  # noqa: E402
 from fake_access import FakeAccess  # noqa: E402
 from make_demo_db import DEFAULT_OUT, OUTSIDER_ID, PEOPLE, TEXT_CHANNEL_ID, VOICE_CHANNEL_ID, VOICE_SESSION_ID  # noqa: E402
-from message_store import MessageStore  # noqa: E402
 from transcript_reader import AuthorizedTranscriptReader  # noqa: E402
-from transcript_store import SessionNotFound, TranscriptStore  # noqa: E402
+from sqlite_api import SessionNotFound, SQLiteStore  # noqa: E402
 
 
 async def main(db: Path) -> None:
     access = FakeAccess()
-    voice = AuthorizedTranscriptReader(access, TranscriptStore(db))
-    text = AuthorizedMessageReader(access, MessageStore(db))
+    voice = AuthorizedTranscriptReader(access, SQLiteStore(db))
+    text = AuthorizedMessageReader(access, SQLiteStore(db))
     a = PEOPLE["A"]
 
     sessions = await voice.recent_sessions_for(a, VOICE_CHANNEL_ID)
@@ -61,7 +60,7 @@ async def main(db: Path) -> None:
         print("6. 不存在的錄音 → SessionNotFound（NOT_FOUND）")
 
     try:
-        await AuthorizedTranscriptReader(FakeAccess(unavailable=True), TranscriptStore(db)).transcript_for(a, VOICE_SESSION_ID)
+        await AuthorizedTranscriptReader(FakeAccess(unavailable=True), SQLiteStore(db)).transcript_for(a, VOICE_SESSION_ID)
     except AccessUnavailable:
         print("7. Discord 無法確認權限 → AccessUnavailable（PERMISSION_UNVERIFIED）")
 

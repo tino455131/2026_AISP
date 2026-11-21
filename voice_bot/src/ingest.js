@@ -2,7 +2,7 @@
 //   1. voice_stt:  recording folder -> transcript in the bot database
 //   2. meeting_ai: transcript -> summary, stored in the database
 // /meeting end runs meeting_ai.summarize_text_meeting the same way (messages on stdin).
-// The "查看" buttons run a third one (in discord_bot's environment, it needs discord.py):
+// The "查看" buttons run a third one (in text_bot's environment, it needs discord.py):
 //   meeting_ai.show_session reads for one person through the AI team's reader interface.
 import { spawn } from 'node:child_process';
 import path from 'node:path';

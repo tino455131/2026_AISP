@@ -6,8 +6,14 @@ voice_bot 把摘要貼回語音頻道的聊天室，並存進 voice_session_summ
 任何摘要器只要符合 MeetingSummarizer（有 name、prompt_version、summarize()）就能替換。
 目前內建三個：
 - "simple"：關鍵字規則，不用 API，給測試用（SimpleSummarizer）
+- "claude-code"：交給主機上已登入的 Claude Code（ClaudeCodeSummarizer，用該帳號的訂閱額度，測試用）
 - "openai"：呼叫 OpenAI API（OpenAISummarizer，需要 OPENAI_API_KEY）
-用環境變數 MEETING_SUMMARIZER 選擇，預設 simple。AI 組（Alex、claire）之後可以寫自己的版本換掉。
+用環境變數 MEETING_SUMMARIZER 選擇，預設 simple。
+
+換成其他來源（別的模型、AI 組自己的做法）不用改這裡：
+- 只想換模型：繼承 llm.LLMSummarizer、實作 generate()，提示詞與格式沿用（見 llm.py）
+- 整套自己做：任何有 name、prompt_version、summarize() 的類別都可以
+然後設定 MEETING_SUMMARIZER=模組路徑:類別名稱。
 """
 
 from __future__ import annotations
@@ -96,7 +102,7 @@ class SummaryError(RuntimeError):
 
 
 def get_summarizer(kind: str | None = None) -> MeetingSummarizer:
-    """By name (simple, claude, claude-code), or "module.path:ClassName" for any other source."""
+    """By name (simple, claude-code, openai), or "module.path:ClassName" for any other source."""
     raw = (kind or os.environ.get("MEETING_SUMMARIZER") or "simple").strip()
     if ":" in raw:
         return _load_summarizer(raw)
@@ -105,13 +111,31 @@ def get_summarizer(kind: str | None = None) -> MeetingSummarizer:
         from .simple import SimpleSummarizer
 
         return SimpleSummarizer()
+    if kind == "claude-code":
+        from .claude_code import ClaudeCodeSummarizer
+
+        return ClaudeCodeSummarizer()
     if kind == "openai":
         from .openai import OpenAISummarizer
 
         return OpenAISummarizer()
     if kind == "claude":
         raise ValueError("MEETING_SUMMARIZER=claude 已移除：請改用 openai 並設定 OPENAI_API_KEY")
-    raise ValueError(f"不認得的摘要器 {kind!r}：請用 simple 或 openai")
+    raise ValueError(f"不認得的摘要器 {kind!r}：請用 simple、claude-code、openai，或「模組路徑:類別名稱」")
+
+
+def _load_summarizer(spec: str) -> MeetingSummarizer:
+    """MEETING_SUMMARIZER=my_pkg.my_module:MySummarizer -> MySummarizer(); module paths are
+    relative to the repo root (where summarize_session runs). No file in meeting_ai has to change."""
+    module_name, _, class_name = spec.partition(":")
+    try:
+        cls = getattr(importlib.import_module(module_name.strip()), class_name.strip())
+    except (ImportError, AttributeError, ValueError) as exc:
+        raise ValueError(f"載入不了摘要器 {spec!r}：{exc}") from exc
+    summarizer = cls()
+    if not callable(getattr(summarizer, "summarize", None)):
+        raise ValueError(f"{spec!r} 沒有 summarize()，不是摘要器")
+    return summarizer
 
 
 def render_markdown(summary: MeetingSummary, owner_display: Mapping[str, str]) -> str:

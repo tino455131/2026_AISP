@@ -1,15 +1,12 @@
-// Entry point: node src/index.js (or npm start) inside voice_bot/.
-import path from 'node:path';
-
+// Entry point: node src/index.js (or npm start) inside voice_bot/. Settings come from the root .env.
 import { ApplicationFlagsBitField, Client, Events, GatewayIntentBits, SlashCommandBuilder } from 'discord.js';
-import dotenv from 'dotenv';
 
 import { RecordController, recordCommand } from './commands.js';
 import { MeetingController, meetingCommand } from './meetings.js';
 import { AiController, aiCommand } from './ai.js';
-import { BOT_ROOT, USAGE, argsToEnv, loadConfig } from './config.js';
+import { USAGE, argsToEnv, loadConfig, loadRootEnv } from './config.js';
 
-dotenv.config({ path: path.join(BOT_ROOT, '.env'), quiet: true });
+loadRootEnv();
 try {
   const { env, help } = argsToEnv(process.argv.slice(2));
   if (help) {

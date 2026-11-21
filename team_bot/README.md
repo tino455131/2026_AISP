@@ -6,14 +6,14 @@
 
 | 程式 | 語言 | 負責 |
 |---|---|---|
-| `voice_bot/` | Node.js | 語音錄音、`/record`、`/meeting`、`/ping`。**所有指令都由它註冊** |
-| `team_bot/text_logger.py` | Python | 沿用 `discord_bot/` 的程式，把文字訊息存進資料庫，不註冊指令 |
+| `voice_bot/` | Node.js | 語音錄音、`/record`、`/meeting`、`/ai`、`/ping`。**所有指令都由它註冊** |
+| `team_bot/text_logger.py` | Python | 沿用 `text_bot/` 的程式，把文字訊息存進資料庫，不註冊指令 |
 
-兩支程式用同一個 token（`voice_bot/.env`），寫進同一個資料庫 `discord_bot/data/messages.sqlite3`。
+兩支程式都讀根目錄的 `.env`，用同一個 token（`VOICE_BOT_TOKEN`），透過 `sqlite_api` 寫進同一個資料庫（預設 `data/messages.sqlite3`）。`TEXT_BOT_TOKEN` 只有單獨跑文字 bot 時才用。
 
 語音一定要用 Node.js（`@discordjs/voice` 才收得到 Discord 加密後的語音），文字 bot 原本是 Python，所以合併後內部還是兩支程式。
 
-原本的 `discord_bot/bot.py` **沒有改**，還是可以用它自己的 token 單獨跑。不要和合併版同時跑，否則同樣的訊息會被記錄兩次。
+`text_bot/bot.py` **沒有改**，還是可以用 `TEXT_BOT_TOKEN` 單獨跑。不要和合併版同時跑，否則同樣的訊息會被記錄兩次。
 
 ## 第一次使用：在 Developer Portal 開兩個權限
 
@@ -27,6 +27,8 @@ bot 在要開會的文字頻道還需要「讀取訊息歷史」權限。沒有�
 
 ## 啟動
 
+先在根目錄執行 `SETUP_Windows.ps1`（或 macOS／Linux 的腳本），它會建立 `text_bot/.venv`、`voice_bot/voice_stt/.venv`，安裝 `sqlite_api`，並從 `.env.example` 建立 `.env`。在 `.env` 填好 `VOICE_BOT_TOKEN` 和 `DISCORD_GUILD_ID` 後，在 repo 根目錄執行：
+
 ```bash
 node team_bot/start.mjs
 ```
@@ -36,7 +38,7 @@ node team_bot/start.mjs
 - 按 Ctrl+C 會一起停；語音如果正在錄，會先收尾再結束。
 - 文字記錄起不來時（例如還沒開上面的權限），語音和指令照常運作，畫面會說原因。
 
-只想要語音和指令、不要記錄文字訊息：照舊在 `voice_bot/` 執行 `npm start`。`/meeting` 也能用，因為它是開會結束時才直接向 Discord 讀那段訊息，不靠文字記錄。
+只想要語音和指令、不要記錄文字訊息：在 repo 根目錄執行 `npm --prefix voice_bot start`。`/meeting` 也能用，因為它是開會結束時才直接向 Discord 讀那段訊息，不靠文字記錄。
 
 ## 指令
 

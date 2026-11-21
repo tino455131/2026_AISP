@@ -75,7 +75,7 @@ test('CONSENT_MODE=direct: people are included, "不要錄我" sticks even after
 });
 
 test('CONSENT_MODE defaults to direct; only direct or ask', () => {
-  const base = { DISCORD_TOKEN: 'x', DISCORD_GUILD_ID: '123456789012345678' };
+  const base = { VOICE_BOT_TOKEN: 'x', DISCORD_GUILD_ID: '123456789012345678' };
   assert.equal(loadConfig(base).consentMode, 'direct');
   assert.equal(loadConfig({ ...base, CONSENT_MODE: ' ASK ' }).consentMode, 'ask');
   assert.throws(() => loadConfig({ ...base, CONSENT_MODE: 'yes' }), /CONSENT_MODE/);
@@ -136,7 +136,7 @@ test('startup options pick the summarizer and STT engine for one run', () => {
   assert.equal(sttRecipient('local'), null); // transcribed on this computer
   assert.equal(sttRecipient('openai'), 'OpenAI');
   assert.equal(sttRecipient('my.engine:x', 'none'), null);
-  const config = loadConfig({ DISCORD_TOKEN: 'x', DISCORD_GUILD_ID: '123456789012345678', STT_ENGINE: 'OpenAI' });
+  const config = loadConfig({ VOICE_BOT_TOKEN: 'x', DISCORD_GUILD_ID: '123456789012345678', STT_ENGINE: 'OpenAI' });
   assert.equal(config.sttEngine, 'openai');
   assert.equal(config.sttRecipient, 'OpenAI');
 });
@@ -270,7 +270,7 @@ test('config needs a token and a numeric server id', () => {
   assert.match(config.botDb, /[\\/]data[\\/]messages\.sqlite3$/);
   assert.equal(config.keepAudio, false);
   assert.equal(config.summarizer, 'simple');
-  const base = { DISCORD_TOKEN: 'abc', DISCORD_GUILD_ID: '123456789012345678' };
+  const base = { VOICE_BOT_TOKEN: 'abc', DISCORD_GUILD_ID: '123456789012345678' };
   assert.equal(loadConfig({ ...base, MEETING_SUMMARIZER: ' Claude-Code ' }).summarizer, 'claude-code');
   assert.equal(summaryRecipient('claude-code'), 'Claude（Anthropic 的 AI）');
   assert.equal(summaryRecipient('claude'), 'Claude（Anthropic 的 AI）');
@@ -402,7 +402,7 @@ test('automatic recording picks the busiest allowed voice channel', () => {
 });
 
 test('AUTO_RECORD is on unless turned off; AUTO_RECORD_CHANNELS takes channel ids', () => {
-  const base = { DISCORD_TOKEN: 'abc', DISCORD_GUILD_ID: '123456789012345678' };
+  const base = { VOICE_BOT_TOKEN: 'abc', DISCORD_GUILD_ID: '123456789012345678' };
   assert.equal(loadConfig(base).autoRecord, true);
   assert.equal(loadConfig(base).autoRecordChannels, null);
   assert.equal(loadConfig({ ...base, AUTO_RECORD: '0' }).autoRecord, false);

@@ -23,7 +23,7 @@ const fail = (text) => {
 function checkOpenAI(config, label) {
   if (!(process.env.OPENAI_API_KEY ?? '').trim()) return warn(`${label}，但 .env 沒有 OPENAI_API_KEY：會失敗`);
   const probe = spawnSync(config.python, ['-c', 'import openai'], { encoding: 'utf8' });
-  if (probe.status !== 0) return warn(`${label}，但 voice_stt/.venv 沒有 openai 套件：執行 pip install openai`);
+  if (probe.status !== 0) return warn(`${label}，但 voice_bot/voice_stt/.venv 沒有 openai 套件：重新執行 SETUP_Windows.ps1，或在那個環境 pip install -r voice_bot/voice_stt/requirements.txt`);
   return ok(`${label}，OPENAI_API_KEY 已填（內容不顯示）`);
 }
 

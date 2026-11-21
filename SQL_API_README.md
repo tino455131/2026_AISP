@@ -78,8 +78,10 @@ with TemporaryDirectory() as directory:
 | `summary` | `get_session_summary` |
 | `delete_speaker` | `delete_speaker_transcript` |
 | `delete_session` | `delete_voice_session` |
+| `TextMeetingStore(path).save(record)` | `save_text_meeting(record)` |
+| `TextMeetingStore(path).get(meeting_id)` | `get_text_meeting(meeting_id)` |
 
-`save_message`、`update_message`、`delete_message`、`delete_messages`、`delete_channel`、`delete_guild` 可照原名使用。完整型別與操作行為見 [sqlite_api.py](sqlite_api.py)。
+`save_message`、`update_message`、`delete_message`、`delete_messages`、`delete_channel`、`delete_guild` 可照原名使用。`delete_channel`、`delete_guild` 也會一起刪掉那個頻道或伺服器的文字會議紀錄（`text_meetings`），因為紀錄的摘要來自那些訊息。完整型別與操作行為見 [sqlite_api.py](sqlite_api.py)。
 
 ## 搬移既有資料庫
 

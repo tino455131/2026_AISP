@@ -1,15 +1,18 @@
 # 給 AI 組：語音和資料介面使用說明（F6）
 
-> 2026-11-21，Ping3227。程式在 branch `ping/voice`，**還沒合併到 main**。
+> 2026-11-21，Ping3227；2026-11-22 改成皓元整理後的資料夾結構（`text_bot/`、`voice_bot/voice_stt/`、共用的 `sqlite_api.py`、根目錄 `.env`）。程式在 GitHub 的 `ping-voice-tmp-merge` 分支，**還沒合併到 main**。
 > 標「🧪 測試」的是 AI 組正式版出來前的示範，照 `spec.md` v1.1 寫，正式版請 AI 組自己做。
 
 ## 一、有哪些東西可以用
 
 | 東西 | 做什麼 | 狀態 | 在哪 |
 |---|---|---|---|
-| 語音錄音 → 逐字稿 → 摘要 | 有人進語音頻道就錄音；結束後轉成逐字稿，再做摘要 | ✅ 可用 | `voice_bot/`、`voice_stt/`、`meeting_ai/` |
-| **讀取介面** | AI 組的 tool 拿資料的入口，每次讀之前都會先確認權限 | ✅ 正式用 | `discord_bot/transcript_reader.py`、`discord_bot/channel_access.py` |
-| 摘要介面 | 換摘要器只要改一個名字（simple、claude-code、claude、openai、自訂） | ✅ 可用 | `meeting_ai/interface.py` |
+| **合併版 bot** | Discord 裡只有一個 bot，語音錄音、所有指令、文字訊息記錄都是它（見第五節） | ✅ 可用 | `team_bot/` |
+| 文字訊息記錄 | 把文字頻道的訊息存進 `messages` 表，`AuthorizedMessageReader` 讀的就是這些 | ✅ 可用（用合併版啟動才有） | `team_bot/text_logger.py`（沿用 `text_bot/`） |
+| **共用資料庫介面** | 所有元件讀寫 SQLite 的同一個入口（皓元） | ✅ 可用 | `sqlite_api.py`，用法見 [SQL_API_README.md](../SQL_API_README.md) |
+| 語音錄音 → 逐字稿 → 摘要 | 有人進語音頻道就錄音；結束後轉成逐字稿，再做摘要 | ✅ 可用 | `voice_bot/`（語音辨識在 `voice_bot/voice_stt/`）、`meeting_ai/` |
+| **讀取介面** | AI 組的 tool 拿資料的入口，每次讀之前都會先確認權限 | ✅ 正式用 | `text_bot/transcript_reader.py`、`text_bot/channel_access.py` |
+| 摘要介面 | 換摘要器只要改一個名字（simple、claude-code、openai、自訂） | ✅ 可用 | `meeting_ai/interface.py` |
 | `/meeting` 文字會議 | 組長開始／結束，結束後在原頻道發布紀錄 | ✅ 基本版 | `voice_bot/src/meetings.js` |
 | `/ai` 指令和追蹤進度 | 在 Discord 裡整理任務、問問題、追蹤進度 | 🧪 測試 | `voice_bot/src/ai.js`、`ai_demo/` |
 | `ai_demo` | 在終端機跑同樣的 AI 功能，也是給 AI 組參考的示範 | 🧪 測試 | `ai_demo/` |
@@ -27,32 +30,121 @@
 
 ---
 
-## 二、在自己電腦上測（不用 Discord、不用真資料）
+## 二、語音 bot：從錄音到你們拿得到資料
+
+### 1. 整個流程
+
+```
+有人進語音頻道 ──▶ 錄音（每個人分開錄）──▶ 所有人離開，或組長 /record stop
+    ──▶ voice_stt 轉成逐字稿（本機 Breeze 模型）──▶ voice_sessions、voice_lines
+    ──▶ meeting_ai 做摘要 ──▶ voice_session_summaries
+    ──▶ 語音頻道的聊天室留一則靜音訊息，附「查看摘要」「查看逐字稿」按鈕
+```
+
+**錄音結束後才有逐字稿**，錄音途中讀不到。結束時那則訊息會依序更新：轉文字中 → 已轉成 N 句 → 會議紀錄完成。
+
+### 2. 什麼時候錄、錄誰
+
+| 情況 | 會怎樣 |
+|---|---|
+| 有人進語音頻道 | 約 3 秒後 bot 自動加入並開始錄（`AUTO_RECORD`，預設開） |
+| 組長下 `/record start` | 手動開始錄，bot 暱稱會變成 `[REC] …` |
+| 中途有人進來 | 也會錄，bot 在聊天室 @ 他告知 |
+| 有人按「不要錄我」 | 這次不再錄他，**已錄的部分也刪掉**。按錯可以按「繼續錄我」 |
+| 所有人離開，或組長 `/record stop` | 停止錄音，開始轉文字 |
+| 自動開始，但什麼都沒錄到 | 收回 bot 發的訊息，不留任何紀錄 |
+
+- 同一個伺服器同時只能錄一個語音頻道（Discord 的限制），會選人最多的那個。
+- 上面是預設的 `CONSENT_MODE=direct`。改成 `ask` 的話，只錄按了「同意錄音」的人。
+- `/record status` 可以看錄了多久、正在錄誰。
+
+### 3. 逐字稿的特性（寫 tool 時要知道）
+
+- **說話的人是準的。** Discord 本來就把每個人的聲音分開送，`speaker_id` 就是那個人的 Discord ID，不用另外判斷誰在說話。
+- **一句怎麼來的：** 一個人停頓超過 0.8 秒就切成一段錄音（`SILENCE_MS`）。同一個人間隔 3 秒內的錄音會合起來一起辨識，最長 60 秒，辨識結果再分成句子。短於 0.3 秒的聲音（咳嗽、雜音）不錄。
+- **時間：** 每句都有 `started_at`、`ended_at`，是 UTC 的真實時間，可以和文字訊息排在同一條時間線上。
+- **文字：** `text` 是轉成台灣繁體（OpenCC `s2twp`）後的文字，用這個。`text_raw` 是辨識原文，只用來除錯。
+- **`confidence`：** 0～1，模型平均有多確定。
+- **`flags`：** 可能有問題的句子會標記，標了的句子不要當成確定的依據：
+
+  | flag | 意思 |
+  |---|---|
+  | `low_confidence` | 模型不太確定 |
+  | `repetitive` | 同樣的字一直重複，例如「對對對對對對」 |
+  | `maybe_no_speech` | 可能根本沒人說話 |
+  | `hallucination_suspect` | 像常見的辨識幻覺句 |
+
+- **已經先丟掉的：** 空白、完全是幻覺句的、很短又不確定的非中文（通常是咳嗽或「嗯」被聽成英文）。
+- **名字：** 資料庫只存 Discord ID。錄音當時的顯示名稱在 `voice_bot/recordings/<session>/manifest.json`，`ai_demo` 就是讀這裡。
+- **專有名詞：** `voice_bot/voice_stt/glossary.txt` 裡的詞會提示模型，常聽錯的詞可以加進去。
+- **錄音檔：** 轉完文字就刪除，只留逐字稿（`.env` 設 `KEEP_AUDIO=1` 才保留，只用來除錯）。
+
+### 4. 摘要
+
+- 現在用這台主機已登入的 Claude Code。要換成別的，見第五節的 `--summarizer`；AI 組要接自己的摘要器，見 [meeting_ai/README.md](../meeting_ai/README.md)。
+- 格式：
+
+  ```json
+  {
+    "summary": "一段話的摘要",
+    "decisions": [{"text": "決定了什麼", "source_line_ids": [3, 4]}],
+    "action_items": [{"task": "要做的事", "owner": "S1", "due": "期限原文", "source_line_ids": [7]}]
+  }
+  ```
+
+  - `owner` 通常是 `S1`、`S2`… 這類代號（照第一次說話的順序編），也可能是會議裡提到的人名，不會是 Discord ID。
+  - `due` 照會議裡的原話，例如「下週五前」，不是確定的日期。
+  - `source_line_ids` 是 `voice_lines` 的 `line_id`，每一項都要有依據。
+- `summary_for` 回傳的 `is_stale` 是 `True` 時，代表摘要寫完後句數變了（例如有人補轉文字），要重做。
+- 摘要不貼在頻道，要按按鈕才看得到。
+
+### 5. 誰看得到
+
+- 「查看摘要」「查看逐字稿」按鈕：看得到這個語音頻道的人都能按（要有「檢視頻道」＋「讀取訊息歷史」），沒參加會議也可以。內容只有按的人看得到。
+- 這些按鈕走的就是你們要用的 `AuthorizedTranscriptReader`，[meeting_ai/show_session.py](../meeting_ai/show_session.py) 是完整範例。讀取介面的規則見 [docs/ai_memory_api.md](ai_memory_api.md)。
+
+### 6. 資料在哪
+
+| 東西 | 位置 |
+|---|---|
+| 一場錄音 | `voice_sessions`。`session_id` 是 `rec-<語音頻道 ID>-<主機當地時間 年月日-時分秒>` |
+| 逐字稿 | `voice_lines`，每句一列 |
+| 摘要 | `voice_session_summaries`，一場一份 |
+| 顯示名稱、每段錄音的時間 | `voice_bot/recordings/<session>/manifest.json` |
+| 給人看的逐字稿 | `voice_bot/recordings/<session>/transcript.md`，內容和資料庫相同 |
+
+每張表的欄位見 [database_schema.md](database_schema.md)。`recordings/` 不會進 git。
+
+### 7. 限制
+
+- 沒有即時逐字稿，要等錄音結束、轉完文字。
+- 辨識偶爾會聽錯專有名詞或同音字，請看 `flags` 和 `confidence`。
+- bot 在錄音途中被關掉的話，錄音資料夾還在，可以手動轉文字，步驟見 [voice_bot/README.md](../voice_bot/README.md) 的「出問題時」。
+
+---
+
+## 三、在自己電腦上測（不用 Discord、不用真資料）
 
 ### 1. 準備（只要做一次）
 
-需要 Python 3.11 以上。在 repo 根目錄執行：
+需要 Python 3.11。測讀取介面和 ai_demo 只需要文字 bot 的環境，不用裝語音辨識（要好幾 GB）。在 repo 根目錄執行：
 
 ```bash
-python -m venv discord_bot/.venv
+python -m venv text_bot/.venv
 ```
 
 ```bash
-discord_bot/.venv/Scripts/python.exe -m pip install -r discord_bot/requirements.txt pytest
+text_bot/.venv/Scripts/python.exe -m pip install -r text_bot/requirements.txt -e . pytest
 ```
 
-macOS／Linux 把 `discord_bot/.venv/Scripts/python.exe` 換成 `discord_bot/.venv/bin/python`。下面的指令都一樣。
-
-劇本 `Demo_Script.md` 在 main 上。如果你的 branch 沒有這個檔案，先拿過來：
-
-```bash
-git checkout origin/main -- Demo_Script.md
-```
+- `-e .` 會安裝共用的 `sqlite_api`，每個環境都要裝。
+- macOS／Linux 把 `text_bot/.venv/Scripts/python.exe` 換成 `text_bot/.venv/bin/python`。下面的指令都一樣。
+- 要把整套 bot 都裝起來（含語音辨識和 Node.js），改執行根目錄的 `SETUP_Windows.ps1`，見[根目錄 README](../README.md)。
 
 ### 2. 產生假資料庫
 
 ```bash
-discord_bot/.venv/Scripts/python.exe demo_data/make_demo_db.py
+text_bot/.venv/Scripts/python.exe demo_data/make_demo_db.py
 ```
 
 結果放在 `demo_data/out/`，這個資料夾不會進 git。
@@ -71,17 +163,17 @@ discord_bot/.venv/Scripts/python.exe demo_data/make_demo_db.py
 先跑一次示範，會印出 7 個例子：讀到資料的、被拒絕的、找不到的。
 
 ```bash
-discord_bot/.venv/Scripts/python.exe demo_data/try_readers.py
+text_bot/.venv/Scripts/python.exe demo_data/try_readers.py
 ```
 
 程式裡這樣用（完整例子見 `demo_data/try_readers.py`）：
 
 ```python
 from fake_access import FakeAccess                     # 正式：ChannelAccess(client, guild_id)
-from transcript_reader import AuthorizedTranscriptReader
-from transcript_store import TranscriptStore
+from sqlite_api import SQLiteStore                     # 所有元件共用的資料庫介面
+from transcript_reader import AuthorizedTranscriptReader  # 在 text_bot/，要先加進 sys.path（見 try_readers.py）
 
-reader = AuthorizedTranscriptReader(FakeAccess(), TranscriptStore(db_path))
+reader = AuthorizedTranscriptReader(FakeAccess(), SQLiteStore(db_path))
 lines = await reader.transcript_for(member_id=1001, session_id="rec-demo-voice")
 ```
 
@@ -90,7 +182,7 @@ lines = await reader.transcript_for(member_id=1001, session_id="rec-demo-voice")
 | `AuthorizedTranscriptReader.recent_sessions_for(member_id, channel_id, limit=20)` | 一個語音頻道的錄音列表，新的在前（`VoiceSession`） |
 | `AuthorizedTranscriptReader.transcript_for(member_id, session_id)` | 一場錄音的每一句，照時間排（`TranscriptLine`：說話的人 ID、時間、文字、信心、`flags`） |
 | `AuthorizedTranscriptReader.summary_for(member_id, session_id)` | 摘要：`.summary.content` 是 JSON，`.is_stale` 代表摘要之後逐字稿有變。還沒有摘要時是 `None` |
-| `AuthorizedMessageReader.recent_messages_for(member_id, channel_id, limit=100)` | 文字頻道最近的訊息（文字記錄有開才有） |
+| `AuthorizedMessageReader.recent_messages_for(member_id, channel_id, limit=100)` | 文字頻道最近的訊息（用 `team_bot/start.mjs` 啟動、有開文字記錄才有） |
 
 摘要的 JSON 長這樣：
 
@@ -133,27 +225,27 @@ FakeAccess(unavailable=True)     # 假裝 Discord 無法確認 → AccessUnavail
 例如：
 
 ```bash
-discord_bot/.venv/Scripts/python.exe -m ai_demo --db demo_data/out/messages.sqlite3 --recordings demo_data/out/recordings tasks mtg-30-3000 --leader 1001
+text_bot/.venv/Scripts/python.exe -m ai_demo --db demo_data/out/messages.sqlite3 --recordings demo_data/out/recordings tasks mtg-30-3000 --leader 1001
 ```
 
 - AI 預設用電腦上已經登入的 Claude Code（`claude` 指令），大約 30 秒。
-- 也可以改用 API：加 `--ai claude`，並先裝 `anthropic` 套件、設定環境變數 `ANTHROPIC_API_KEY`。API 照用量計費。
+- 也可以改用 OpenAI：加 `--ai openai`，並在根目錄 `.env` 填 `OPENAI_API_KEY`（這個環境要另外 `pip install openai`）。API 照用量計費。
 - 假資料的文字會議應該得到 **1 項正式任務**（C 出小考，2026-11-27 18:00）和大約 10 項待確認提案。AI 每次的結果會有一點不同。
 - 想模仿 bot 傳原文的方式，可以加 `--stdin`，並把 `demo_data/out/text_meeting_messages.json` 從標準輸入傳進去。
 
 ### 5. 跑測試
 
 ```bash
-discord_bot/.venv/Scripts/python.exe -m unittest discover -s demo_data
+text_bot/.venv/Scripts/python.exe -m unittest discover -s demo_data
 ```
 
 ```bash
-discord_bot/.venv/Scripts/python.exe -m pytest ai_demo -q
+text_bot/.venv/Scripts/python.exe -m pytest ai_demo -q
 ```
 
 ---
 
-## 三、在 Discord 上測（bot 要在主機上跑著）
+## 四、在 Discord 上測（bot 要在主機上跑著）
 
 | 指令 | 誰可以用 | 做什麼 |
 |---|---|---|
@@ -181,7 +273,28 @@ discord_bot/.venv/Scripts/python.exe -m pytest ai_demo -q
 
 ---
 
-## 四、啟動 bot 和切換功能（主機上）
+## 五、啟動 bot 和切換功能（主機上）
+
+### 語音 bot 和文字 bot 合併成一個
+
+Discord 裡只會看到**一個 bot**。它內部跑兩支程式，都讀根目錄的 `.env`、用同一個 token（`VOICE_BOT_TOKEN`），透過 `sqlite_api` 寫進同一個資料庫：
+
+| 程式 | 負責 |
+|---|---|
+| `voice_bot/`（Node.js） | 語音錄音，以及**所有指令**（`/record`、`/meeting`、`/ai`、`/ping`） |
+| `team_bot/text_logger.py`（Python，沿用 `text_bot/` 的程式） | 把文字訊息存進 `messages` 表，不註冊指令 |
+
+語音一定要用 Node.js 才收得到，文字 bot 原本是 Python，所以合併後內部還是兩支程式。
+
+| 怎麼啟動 | 有什麼 |
+|---|---|
+| `node team_bot/start.mjs`（在 repo 根目錄） | 全部：語音、指令、文字記錄 |
+| `npm --prefix voice_bot start`（在 repo 根目錄） | 只有語音和指令，**沒有文字記錄**。`/meeting` 還是能用，因為它結束時直接向 Discord 讀訊息 |
+
+- 不要和 `text_bot/bot.py` 同時跑，否則同樣的訊息會被記兩次。`TEXT_BOT_TOKEN` 只有單獨跑文字 bot 時才用。
+- 第一次用合併版，要在 Developer Portal 打開 Message Content Intent 和 Server Members Intent，步驟見 [team_bot/README.md](../team_bot/README.md)。
+
+### 啟動選項
 
 ```bash
 node team_bot/start.mjs --help
@@ -189,16 +302,16 @@ node team_bot/start.mjs --help
 
 | 選項 | 可以填 | 預設 |
 |---|---|---|
-| `--summarizer` | `simple`、`claude-code`、`claude`、`openai`、`模組:類別` | `.env` 的 `MEETING_SUMMARIZER` |
+| `--summarizer` | `simple`、`claude-code`、`openai`、`模組:類別` | `.env` 的 `MEETING_SUMMARIZER` |
 | `--stt` | `local`（本機 Breeze）、`openai`、`模組:類別` | `local` |
 | `--consent` | `direct`（進來就錄）、`ask`（按同意才錄） | `direct` |
 | `--auto-record` | `on`、`off` | `.env` 的 `AUTO_RECORD` |
 
-沒給的選項用 `voice_bot/.env` 的設定，所有欄位的說明在 `voice_bot/.env.example`。**API key 和 token 只能放在 `.env`**，不能當參數，也不能 commit。
+沒給的選項用根目錄 `.env` 的設定，所有欄位的說明在根目錄的 `.env.example`。**API key 和 token 只能放在 `.env`**，不能當參數，也不能 commit。
 
 ---
 
-## 五、對照 spec v1.1 的檢查結果
+## 六、對照 spec v1.1 的檢查結果
 
 ### ✅ 符合
 
@@ -240,7 +353,7 @@ node team_bot/start.mjs --help
 | 項目 | spec | 現在 |
 |---|---|---|
 | 語音 | 語音轉錄不在本次範圍 | 有做，逐字稿長期保存 |
-| 文字記錄 | 一般聊天不長期完整保存 | `discord_bot/bot.py`、`team_bot/text_logger.py` 會把所有訊息長期存進 `messages` 表 |
+| 文字記錄 | 一般聊天不長期完整保存 | `text_bot/bot.py`、`team_bot/text_logger.py` 會把所有訊息長期存進 `messages` 表 |
 | 組長 | Administrator 設定「一位」TeamLeader | 用身分組；沒設定時，有「管理伺服器」權限的人都算 |
 | team_id | 所有資料都要帶 `team_id` | 只有 `guild_id` |
 | 時區 | 組長確認過的 timezone | 固定 `Asia/Taipei` |
@@ -262,7 +375,7 @@ node team_bot/start.mjs --help
 
 ---
 
-## 六、注意事項
+## 七、注意事項
 
 - **不要把真的資料庫、錄音或逐字稿放進 git。** repo 是公開的，`.gitignore` 已經擋掉 `*.sqlite3` 和 `recordings/`。測試一律用 `demo_data` 的假資料。
 - 假資料的 ID 都是編的。真的 Discord ID 是 18～19 位數，傳給 JavaScript 時要轉成字串。

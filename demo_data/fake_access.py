@@ -1,6 +1,6 @@
 """【測試用】不用連 Discord 的權限判斷，給 AuthorizedTranscriptReader、AuthorizedMessageReader 用。
 
-真的 ChannelAccess（discord_bot/channel_access.py）每次都問 Discord：
+真的 ChannelAccess（text_bot/channel_access.py）每次都問 Discord：
 「這個人現在能不能看這個頻道、讀訊息歷史」。這裡改成查一張表，其他程式完全一樣。
 
     access = FakeAccess()                                   # 預設：A～E 看得到語音和文字頻道，40 只有 A

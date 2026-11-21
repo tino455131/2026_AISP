@@ -2,7 +2,7 @@
 
 在 repo 根目錄執行：
 
-    discord_bot/.venv/Scripts/python.exe demo_data/make_demo_db.py
+    text_bot/.venv/Scripts/python.exe demo_data/make_demo_db.py
 
 產生的東西都在 demo_data/out/（不會進 git）：
 
@@ -26,15 +26,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(REPO_ROOT), str(REPO_ROOT / "discord_bot")]
+sys.path[:0] = [str(REPO_ROOT)]
 
-from message_store import MessageStore  # noqa: E402
-from transcript_store import NewLine, TranscriptStore  # noqa: E402
+from sqlite_api import NewLine, SQLiteStore  # noqa: E402  (the same store every part uses)
 
 from meeting_ai import get_summarizer  # noqa: E402
 from meeting_ai.summarize_session import summarize_session  # noqa: E402
 from meeting_ai.summarize_text_meeting import summarize_text_meeting  # noqa: E402
-from meeting_ai.text_meeting_store import TextMeetingStore  # noqa: E402
 
 GUILD_ID = 1
 VOICE_CHANNEL_ID = 20
@@ -82,23 +80,23 @@ def build(script: Path = DEFAULT_SCRIPT, out: Path = DEFAULT_OUT) -> dict:
     names = {str(uid): who for who, uid in PEOPLE.items()}
 
     # 語音：一句 12 秒
-    store = TranscriptStore(db)
+    store = SQLiteStore(db)
     start = datetime(2026, 11, 20, 6, 0, tzinfo=timezone.utc)
     spoken = [*dialogue, EXTRA_VOICE]
-    store.start_session(VOICE_SESSION_ID, GUILD_ID, VOICE_CHANNEL_ID, start.isoformat(), PEOPLE[LEADER])
-    store.add_lines(VOICE_SESSION_ID, [
+    store.create_voice_session(VOICE_SESSION_ID, GUILD_ID, VOICE_CHANNEL_ID, start.isoformat(), PEOPLE[LEADER])
+    store.add_transcript_lines(VOICE_SESSION_ID, [
         NewLine(PEOPLE[who], (start + timedelta(seconds=12 * n)).isoformat(),
                 (start + timedelta(seconds=12 * n + 10)).isoformat(), text, text, 0.9)
         for n, (who, text) in enumerate(spoken)
     ])
-    store.end_session(VOICE_SESSION_ID, (start + timedelta(seconds=12 * len(spoken))).isoformat())
+    store.end_voice_session(VOICE_SESSION_ID, (start + timedelta(seconds=12 * len(spoken))).isoformat())
     manifest = out / "recordings" / VOICE_SESSION_ID / "manifest.json"
     manifest.parent.mkdir(parents=True, exist_ok=True)
     manifest.write_text(json.dumps({"names": names}, ensure_ascii=False, indent=2), encoding="utf-8")
     summarize_session(store, VOICE_SESSION_ID, simple, names)
 
     # 文字會議：一則 30 秒；文字記錄存進 messages 表，/meeting end 存會議紀錄
-    messages_store = MessageStore(db)
+    messages_store = store
     begin = datetime(2026, 11, 20, 7, 0, tzinfo=timezone.utc)
     messages = []
     for n, (who, text) in enumerate([*dialogue, EXTRA_TEXT], start=1):
@@ -115,7 +113,7 @@ def build(script: Path = DEFAULT_SCRIPT, out: Path = DEFAULT_OUT) -> dict:
         "start_message_id": MEETING_START_ID, "end_message_id": MEETING_START_ID + len(messages) + 1,
         "messages": messages,
     }
-    summarize_text_meeting(TextMeetingStore(db), meeting, simple)
+    summarize_text_meeting(store, meeting, simple)
     (out / "text_meeting_messages.json").write_text(
         json.dumps({"messages": messages}, ensure_ascii=False, indent=2), encoding="utf-8"
     )

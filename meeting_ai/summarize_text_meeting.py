@@ -15,16 +15,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .interface import MeetingLine, MeetingSummarizer, get_summarizer, render_markdown
-from .text_meeting_store import TextMeetingStore
+from dotenv import load_dotenv
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DB = REPO_ROOT / "discord_bot" / "data" / "messages.sqlite3"
+from sqlite_api import PROJECT_ROOT, SQLiteStore, resolve_database_path
+
+from .interface import MeetingLine, MeetingSummarizer, get_summarizer, render_markdown
+
 
 
 MENTION = re.compile(r"<@!?(\d+)>")
@@ -62,11 +64,11 @@ def build_text_lines(messages: list[dict]):
     return lines, names, {found: user for user, found in label_of.items()}, source
 
 
-def summarize_text_meeting(store: TextMeetingStore, meeting: dict, summarizer: MeetingSummarizer) -> dict:
+def summarize_text_meeting(store: SQLiteStore, meeting: dict, summarizer: MeetingSummarizer) -> dict:
     lines, names, author_of, source = build_text_lines(meeting["messages"])
     summary = summarizer.summarize(lines, names)
     meeting_id = f"mtg-{meeting['channel_id']}-{meeting['start_message_id']}"
-    store.save(
+    store.save_text_meeting(
         {
             "meeting_id": meeting_id,
             "guild_id": int(meeting["guild_id"]),
@@ -96,17 +98,18 @@ def summarize_text_meeting(store: TextMeetingStore, meeting: dict, summarizer: M
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_dotenv(PROJECT_ROOT / ".env", interpolate=False)
     for stream in (sys.stdin, sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
 
     p = argparse.ArgumentParser(prog="python -m meeting_ai.summarize_text_meeting")
-    p.add_argument("--db", default=str(DEFAULT_DB))
-    p.add_argument("--summarizer", help="simple, claude, claude-code or module:Class (default: $MEETING_SUMMARIZER)")
+    p.add_argument("--db", type=Path, default=resolve_database_path(os.getenv("BOT_DB")))
+    p.add_argument("--summarizer", help="simple, claude-code, openai or module:Class (default: $MEETING_SUMMARIZER)")
     args = p.parse_args(argv)
 
     meeting = json.loads(sys.stdin.read())
-    result = summarize_text_meeting(TextMeetingStore(Path(args.db)), meeting, get_summarizer(args.summarizer))
+    result = summarize_text_meeting(SQLiteStore(args.db), meeting, get_summarizer(args.summarizer))
     print(result["markdown"])
     print("RESULT " + json.dumps(result, ensure_ascii=False))
     return 0

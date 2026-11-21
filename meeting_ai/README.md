@@ -12,7 +12,7 @@
 
 voice_bot 會執行 `python -m meeting_ai.summarize_session <session_id>`（在 repo 根目錄、用 voice_stt 的 venv）。
 
-文字會議（`/meeting end`）也用同一個摘要器：voice_bot 把那段訊息以 JSON 交給 `python -m meeting_ai.summarize_text_meeting`，結果存進 `text_meetings` 表（`text_meeting_store.py`）。每則訊息是一行，作者一樣標成 S1、S2，所以兩種會議的摘要格式相同。
+文字會議（`/meeting end`）也用同一個摘要器：voice_bot 把那段訊息以 JSON 交給 `python -m meeting_ai.summarize_text_meeting`，結果透過 `sqlite_api` 的 `save_text_meeting()` 存進 `text_meetings` 表。每則訊息是一行，作者一樣標成 S1、S2，所以兩種會議的摘要格式相同。
 
 ## 介面
 
@@ -41,16 +41,19 @@ class MeetingSummarizer(Protocol):
 | 名稱 | 檔案 | 說明 |
 |---|---|---|
 | `simple`（預設） | `simple.py` | 關鍵字規則，不用 API，結果粗糙，只為了測試流程 |
-| `openai` | `openai.py` | 呼叫 OpenAI（預設 `gpt-6-luna`），用 JSON schema 固定輸出格式；需要 `openai` 套件和 API key |
+| `openai` | `openai.py` | 呼叫 OpenAI（預設 `gpt-6-luna`），用 JSON schema 固定輸出格式；需要 `openai` 套件和 API key。提示詞、格式和解析和 `claude-code` 共用 `llm.py` |
+| `claude-code` | `claude_code.py` | 交給這台電腦已登入的 Claude Code（`claude` 指令），不用 API key，算在該帳號的訂閱額度；測試用 |
 
-由專案根目錄 .env 設定環境變數 `MEETING_SUMMARIZER=simple|openai`。OpenAI 摘要器需要 `OPENAI_API_KEY`，可用 `MEETING_SUMMARY_MODEL` 覆蓋模型。舊的 `claude` 設定已移除，需改成 `openai`。
+由專案根目錄 .env 設定環境變數 `MEETING_SUMMARIZER=simple|openai|claude-code`，或 `模組路徑:類別名稱`（見下一節）。OpenAI 摘要器需要 `OPENAI_API_KEY`，可用 `MEETING_SUMMARY_MODEL` 覆蓋模型。舊的 `claude` 設定已移除，需改成 `openai`。
 `voice_bot` 會使用 `voice_stt` 的 Python 環境執行摘要；在 repo 根目錄執行 `voice_bot/voice_stt/.venv/Scripts/python.exe -m pip install -r voice_bot/voice_stt/requirements.txt` 安裝相依套件。完整設定與其他平台指令見[根目錄 README](../README.md#從專案根目錄設定與啟動)。
 
 ## 換成你們自己的版本
 
 1. 新增一個 class，例如 `meeting_ai/team.py` 裡的 `TeamSummarizer`，有 `name`、`prompt_version`、`summarize()`。
-2. 在 `interface.py` 的 `get_summarizer()` 加一行 `if kind == "team": ...`。
-3. 用 `MEETING_SUMMARIZER=team` 執行。
+   只想換模型、提示詞和格式照舊的話，繼承 `llm.LLMSummarizer`，只實作 `generate()`（`claude_code.py` 就是這樣做的）。
+2. 用 `MEETING_SUMMARIZER=meeting_ai.team:TeamSummarizer` 執行，不用改 `interface.py`。
+   想要短名稱的話，再到 `get_summarizer()` 加一行 `if kind == "team": ...`。
+3. 有 `generate()` 的摘要器也能給 `/ai`（ai_demo）用：`AI_DEMO_ENGINE=meeting_ai.team:TeamSummarizer`。
 
 不用改 voice_bot、voice_stt，也不用改資料庫。
 

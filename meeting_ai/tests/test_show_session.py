@@ -17,10 +17,11 @@ try:
 except ImportError:
     raise unittest.SkipTest("needs discord.py: run with text_bot/.venv")
 
-from meeting_ai.show_session import _token, read_for_member
+from meeting_ai.show_session import NO_SUMMARY, _token, read_for_member, refused
 from channel_access import AccessUnavailable
 from transcript_reader import AuthorizedTranscriptReader
 from sqlite_api import NewLine, SQLiteStore
+
 
 class VoiceTokenTests(unittest.TestCase):
     def test_viewer_requires_voice_token(self) -> None:

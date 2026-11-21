@@ -12,8 +12,8 @@
 
 ## 一次性設定
 
-1. **建立語音 bot（和皓元的文字 bot 分開）**：[Discord Developer Portal](https://discord.com/developers/applications) → New Application → Bot → Reset Token，複製 token。
-   不需要開任何 Privileged Gateway Intents。
+1. **建立語音 bot**：[Discord Developer Portal](https://discord.com/developers/applications) → New Application → Bot → Reset Token，複製 token。
+   只跑語音的話，不需要開任何 Privileged Gateway Intents；用合併版（`node team_bot/start.mjs`，同時記錄文字訊息）要開 Message Content Intent 和 Server Members Intent，見 [team_bot](../team_bot/README.md)。
 2. **邀請進伺服器**：OAuth2 → URL Generator，scopes 勾 `bot`、`applications.commands`；
    權限勾 **View Channels、Send Messages、Connect、Change Nickname**。用產生的網址邀請進（測試）伺服器。
 3. **安裝**。依[根目錄 README](../README.md#從專案根目錄設定與啟動)從根目錄安裝 Node.js 與 Python 依賴。摘要用 `voice_bot/voice_stt/.venv`，查看按鈕用 `text_bot/.venv`。
@@ -43,7 +43,7 @@ npm start -- --summarizer openai --stt openai
 
 | 參數 | 可以填 |
 |---|---|
-| `--summarizer` | `simple`、`claude-code`、`claude`、`openai`、`模組路徑:類別名稱` |
+| `--summarizer` | `simple`、`claude-code`、`openai`、`模組路徑:類別名稱` |
 | `--stt` | `local`（本機 Breeze）、`openai`、`模組路徑:類別名稱` |
 | `--consent` | `direct`（進來就錄）、`ask`（按了同意才錄） |
 | `--auto-record` | `on`、`off` |

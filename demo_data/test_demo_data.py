@@ -1,7 +1,7 @@
 """【測試用】假資料庫和真的程式接得起來：讀取介面、權限、ai_demo 都讀得到。
 
 在 repo 根目錄執行：
-    discord_bot/.venv/Scripts/python.exe -m unittest discover -s demo_data
+    text_bot/.venv/Scripts/python.exe -m unittest discover -s demo_data
 """
 
 import json
@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path[:0] = [str(HERE.parent), str(HERE), str(HERE.parent / "discord_bot")]
+sys.path[:0] = [str(HERE.parent), str(HERE), str(HERE.parent / "text_bot")]
 
 from channel_access import AccessDenied, AccessUnavailable, AuthorizedMessageReader  # noqa: E402
 from fake_access import FakeAccess  # noqa: E402
@@ -19,9 +19,8 @@ from make_demo_db import (  # noqa: E402
     LEADER_ONLY_CHANNEL_ID, OUTSIDER_ID, PEOPLE, TEXT_CHANNEL_ID, TEXT_MEETING_ID, VOICE_CHANNEL_ID,
     VOICE_SESSION_ID, build,
 )
-from message_store import MessageStore  # noqa: E402
 from transcript_reader import AuthorizedTranscriptReader  # noqa: E402
-from transcript_store import TranscriptStore  # noqa: E402
+from sqlite_api import SQLiteStore  # noqa: E402
 
 from ai_demo.local_data import LocalData  # noqa: E402
 
@@ -59,7 +58,7 @@ class DemoDataTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sent["messages"][-1]["mentions"], [{"id": str(PEOPLE["C"]), "name": "C"}])
 
     async def test_readers_check_access_like_the_real_ones(self):
-        voice = AuthorizedTranscriptReader(FakeAccess(), TranscriptStore(self.db))
+        voice = AuthorizedTranscriptReader(FakeAccess(), SQLiteStore(self.db))
         self.assertEqual([s.session_id for s in await voice.recent_sessions_for(PEOPLE["B"], VOICE_CHANNEL_ID)],
                          [VOICE_SESSION_ID])
         self.assertEqual(len(await voice.transcript_for(PEOPLE["B"], VOICE_SESSION_ID)), 4)
@@ -67,12 +66,12 @@ class DemoDataTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(AccessDenied):
             await voice.transcript_for(OUTSIDER_ID, VOICE_SESSION_ID)
         with self.assertRaises(AccessDenied):  # channel 40 is the leader's only
-            await AuthorizedMessageReader(FakeAccess(), MessageStore(self.db)).recent_messages_for(
+            await AuthorizedMessageReader(FakeAccess(), SQLiteStore(self.db)).recent_messages_for(
                 PEOPLE["B"], LEADER_ONLY_CHANNEL_ID)
         with self.assertRaises(AccessUnavailable):
-            await AuthorizedTranscriptReader(FakeAccess(unavailable=True), TranscriptStore(self.db)).transcript_for(
+            await AuthorizedTranscriptReader(FakeAccess(unavailable=True), SQLiteStore(self.db)).transcript_for(
                 PEOPLE["A"], VOICE_SESSION_ID)
-        texts = await AuthorizedMessageReader(FakeAccess(), MessageStore(self.db)).recent_messages_for(
+        texts = await AuthorizedMessageReader(FakeAccess(), SQLiteStore(self.db)).recent_messages_for(
             PEOPLE["A"], TEXT_CHANNEL_ID)
         self.assertEqual(len(texts), 4)
 

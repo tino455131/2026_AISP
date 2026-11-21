@@ -18,9 +18,9 @@ from pathlib import Path
 from typing import Iterator
 
 from meeting_ai.summarize_text_meeting import MENTION, build_text_lines
+from sqlite_api import DEFAULT_DB  # data/messages.sqlite3, shared by every part
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DB = REPO_ROOT / "discord_bot" / "data" / "messages.sqlite3"
 DEFAULT_RECORDINGS = REPO_ROOT / "voice_bot" / "recordings"
 
 

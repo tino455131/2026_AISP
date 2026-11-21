@@ -78,7 +78,7 @@ export function sttRecipient(engine, override = '') {
   return '外部的語音辨識服務';
 }
 
-// Startup arguments: a quick way to switch for one run; they override voice_bot/.env.
+// Startup arguments: a quick way to switch for one run; they override the root .env.
 const ARGS = {
   summarizer: 'MEETING_SUMMARIZER',
   stt: 'STT_ENGINE',
@@ -87,11 +87,11 @@ const ARGS = {
 };
 export const USAGE = [
   '用法：npm start -- [選項]　或　node team_bot/start.mjs [選項]',
-  '  --summarizer <名稱>   摘要器：simple、claude-code、claude、openai，或 模組路徑:類別名稱',
+  '  --summarizer <名稱>   摘要器：simple、claude-code、openai，或 模組路徑:類別名稱',
   '  --stt <名稱>          語音辨識：local（本機 Breeze）、openai，或 模組路徑:類別名稱',
   '  --consent <方式>      錄音同意：direct（進來就錄）或 ask（按了同意才錄）',
   '  --auto-record <on|off> 有人進語音頻道就自動錄音',
-  '沒給的選項用 voice_bot/.env 的設定。API key 只能放在 .env，不能當參數。',
+  '沒給的選項用根目錄 .env 的設定。API key 只能放在 .env，不能當參數。',
 ].join('\n');
 
 /** ["--stt", "openai", "--summarizer=claude"] -> { env: {STT_ENGINE: "openai", ...}, help }. */
@@ -165,7 +165,7 @@ export function loadConfig(env = process.env) {
     keepAudio: /^(1|true|yes)$/i.test((env.KEEP_AUDIO ?? '').trim()),
     autoRecord,
     autoRecordChannels: channelList.length > 0 ? channelList : null, // null = every voice channel
-    // Which meeting_ai summarizer runs after a recording (simple, claude, claude-code or module:Class).
+    // Which meeting_ai summarizer runs after a recording (simple, claude-code, openai or module:Class).
     summarizer,
     summaryRecipient: summaryRecipient(summarizer, env.MEETING_SUMMARY_SENDS_TO ?? ''),
     // Which voice_stt engine transcribes recordings (local, openai or module:Class).

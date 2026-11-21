@@ -25,8 +25,8 @@ from typing import Mapping, Sequence
 from .interface import MeetingLine, MeetingSummary, SummaryError
 
 # Bump when SYSTEM_PROMPT or SCHEMA changes, so old summaries can be told apart and redone.
-# (The name started with the Claude summarizer; it is the shared prompt for every source.)
-PROMPT_VERSION = "claude-2"
+# Shared by every LLM summarizer (claude-code, openai). Earlier versions were named claude-1, claude-2.
+PROMPT_VERSION = "meeting-3"
 
 SYSTEM_PROMPT = """你是小型專案團隊的會議記錄助理。使用者會給你一場會議的逐字稿（台灣繁體中文，可能中英夾雜），
 每一行的格式是「[行號] 說話者代號（名字）：內容」。

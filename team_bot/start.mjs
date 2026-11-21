@@ -1,6 +1,8 @@
 // 合併版啟動：同一個 bot 帳號，同時跑
-//   1. voice_bot（Node）：語音錄音、/record、/meeting、/ping，所有指令都由它註冊
-//   2. 文字記錄（Python，沿用 discord_bot 的程式）：把文字訊息存進同一個資料庫
+//   1. voice_bot（Node）：語音錄音、/record、/meeting、/ai、/ping，所有指令都由它註冊
+//   2. 文字記錄（Python，沿用 text_bot 的程式）：把文字訊息存進同一個資料庫（sqlite_api）
+//
+// 設定都在根目錄的 .env，兩支都用 VOICE_BOT_TOKEN（同一個 bot 帳號）。
 //
 //   node team_bot/start.mjs
 //
@@ -13,8 +15,8 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const python =
   process.platform === 'win32'
-    ? path.join(ROOT, 'discord_bot', '.venv', 'Scripts', 'python.exe')
-    : path.join(ROOT, 'discord_bot', '.venv', 'bin', 'python');
+    ? path.join(ROOT, 'text_bot', '.venv', 'Scripts', 'python.exe')
+    : path.join(ROOT, 'text_bot', '.venv', 'bin', 'python');
 let stopping = false;
 
 /** Start one part; every line it prints gets a [name] prefix. */
@@ -48,7 +50,7 @@ const voice = start('語音', process.execPath, ['src/index.js', ...process.argv
 const text = existsSync(python)
   ? start('文字', python, [path.join(ROOT, 'team_bot', 'text_logger.py')], ROOT)
   : null;
-if (!text) console.warn('[文字] 找不到 discord_bot/.venv，只啟動語音（見 discord_bot/README.md 建立環境）');
+if (!text) console.warn('[文字] 找不到 text_bot/.venv，只啟動語音（執行根目錄的 SETUP_Windows.ps1 建立環境）');
 
 text?.on('exit', (code) => {
   if (!stopping) console.warn(`[文字] 文字記錄停了（結束碼 ${code}），語音和指令照常運作。`);

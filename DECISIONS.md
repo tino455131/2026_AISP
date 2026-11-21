@@ -431,3 +431,55 @@
 **What:** 由根目錄 [環境範本](.env.example) 建立一份 `.env`，集中設定文字 Bot 的 `TEXT_BOT_TOKEN`、語音 Bot 的 `VOICE_BOT_TOKEN`、共用的 `DISCORD_GUILD_ID` 及 `OPENAI_API_KEY`。Windows 與 macOS 的安裝和啟動說明集中在 [README.md](README.md)，兩個 Python 元件各自使用原有的虛擬環境。
 
 **Why:** 兩個 Bot 可以保留各自的 Discord 帳號，團隊成員則只需到一個地方設定伺服器、憑證及摘要選項。各自的虛擬環境也能讓語音辨識依賴與文字 Bot 分開管理。
+
+## 2026-11-22 — 修好皓元重構後的連接，文字和語音統一由 team_bot 跑
+
+**Decision:**
+
+- 沿用皓元的新結構：`text_bot/`、`voice_bot/voice_stt/`、共用的 `sqlite_api.py`、根目錄 `.env` 和 `data/messages.sqlite3`。
+- 把合併時遺失或沒跟上的部分接回新結構：
+  - 摘要器補回 `claude-code` 和「模組路徑:類別名稱」；照皓元的決定，Claude API（`claude`）維持移除。
+  - OpenAI 摘要器只留皓元的 `meeting_ai/openai.py`：補上缺的 import，加 `generate()` 讓 `/ai` 也能用；刪掉重複的 `openai_summarizer.py`。
+  - `voice_bot` 改讀根目錄 `.env`（原本 `index.js` 還在讀 `voice_bot/.env`）。
+  - `team_bot`、`ai_demo`、`demo_data`、文字會議改用 `text_bot/`、`sqlite_api` 和新的資料庫路徑。
+  - 根目錄 `.env.example` 補回錄音同意、自動錄音、語音辨識引擎、`/ai` 引擎等設定。
+- 合併版（`node team_bot/start.mjs`）是一個 bot 帳號：語音、所有指令、文字記錄都用 `VOICE_BOT_TOKEN`。`TEXT_BOT_TOKEN` 只給單獨跑 `text_bot/bot.py`。
+- 程式由 AI（Claude）協助修改，見 `PROMPT_LOG.md`。
+
+**Why:**
+
+- 皓元的重構是從舊的暫時版（`cb2c63a`）開始的。合併新版時有些檔案只留了一邊，例如摘要器清單、說明檔。
+- 改名和換資料庫介面後，我們較新的程式還指著 `discord_bot/`、`voice_stt/` 和舊的函式名稱，測試有 5 組失敗。
+- 一個 bot 帳號：組員在 Discord 只看到一個 bot，也只要設定一組權限。
+
+**Alternative rejected:**
+
+- 把 `text_bot/`、`voice_bot/` 再搬進 `team_bot/`：剛重構完又搬，衝突和改路徑的成本太高；team_bot 當成唯一的啟動入口就夠了。
+- 兩個 bot 帳號各跑各的：Discord 裡會有兩個 bot，指令和權限要分開設定。
+
+**Open questions:**
+
+- （已在下一則處理：文字會議併進 `sqlite_api`、OpenAI 改用共用提示詞。）
+
+**Led by:** Ping3227
+
+## 2026-11-22 — 文字會議紀錄併進 sqlite_api；OpenAI 摘要改用共用提示詞
+
+**Decision:**
+
+- `text_meetings` 表改由 `sqlite_api.SQLiteStore` 建立和讀寫（`save_text_meeting`、`get_text_meeting`），刪掉 `meeting_ai/text_meeting_store.py`。表的欄位沒變，舊資料庫不用搬資料。
+- `delete_channel`、`delete_guild` 也會刪掉那個頻道或伺服器的文字會議紀錄。
+- `meeting_ai/openai.py` 改成繼承 `llm.LLMSummarizer`，只負責呼叫 OpenAI；提示詞、格式、解析和 claude-code 共用 `llm.py`。共用的提示詞版本改名為 `meeting-3`。
+- `demo_` 三張表（測試用的追蹤進度）和 `ai_demo` 在終端機的唯讀查表維持原狀。
+
+**Why:**
+
+- 文字會議紀錄裡的摘要來自頻道訊息，照 spec R15 要和來源一起受限制；以前刪掉頻道時，訊息和逐字稿會刪，文字會議紀錄卻會留下來。
+- OpenAI 用的是舊版提示詞，少了兩條規則：行號只能寫在 `source_line_ids`，文字裡要寫名字。兩個摘要器各自維護一份提示詞，很容易越改越不一樣。
+
+**Alternative rejected:**
+
+- 把 `demo_` 表也放進 `sqlite_api`：它們只是 AI 組正式任務表出來前的示範，放進共用介面會讓人以為是正式格式。
+- 保留 `TextMeetingStore` 當成包一層的轉接：多一層，沒有好處。
+
+**Led by:** Ping3227

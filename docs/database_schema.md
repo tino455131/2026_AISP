@@ -1,6 +1,9 @@
 # Bot 資料庫架構
 
-全部存在同一個 SQLite 檔：`discord_bot/data/messages.sqlite3`。這個檔案在 `.gitignore` 裡，不會上傳。
+全部存在同一個 SQLite 檔：`data/messages.sqlite3`（可以用根目錄 `.env` 的 `BOT_DB` 改）。這個檔案在 `.gitignore` 裡，不會上傳。
+
+- 文字訊息、語音、文字會議的表都由 [sqlite_api.py](../sqlite_api.py) 建立和讀寫（用法見 [SQL_API_README.md](../SQL_API_README.md)）。刪除頻道或伺服器時，這些表裡那個頻道的資料會一起刪掉。
+- 例外：`demo_` 開頭的三張表是測試用的追蹤進度，由 `ai_demo/tracking.py` 管，之後會被 AI 組的正式任務表取代，所以不放進共用介面。`ai_demo` 在終端機直接唯讀查表，也只是測試捷徑。
 
 - 時間一律是 UTC 的 RFC 3339 字串。
 - Discord ID 存成 INTEGER。傳給 JavaScript 時要轉成字串，因為 JavaScript 的數字裝不下這麼長的 ID。
@@ -11,7 +14,7 @@
 | 群組 | 表 | 誰寫入 | 什麼時候建立 |
 |---|---|---|---|
 | 語音 | `voice_sessions`、`voice_lines`、`voice_session_summaries` | voice_stt（逐字稿）、meeting_ai（摘要） | 第一次錄完音 |
-| 文字訊息 | `messages`、`backfill_state`、`deleted_messages` | 文字記錄（`discord_bot/bot.py` 或 `team_bot/text_logger.py`） | 文字記錄第一次啟動 |
+| 文字訊息 | `messages`、`backfill_state`、`deleted_messages` | 文字記錄（`text_bot/bot.py` 或 `team_bot/text_logger.py`） | 文字記錄第一次啟動 |
 | 文字會議 | `text_meetings` | `/meeting end`（meeting_ai） | 第一次結束文字會議 |
 | 追蹤進度（測試） | `demo_tasks`、`demo_inquiries`、`demo_progress_updates` | `/ai tasks` 的「追蹤」按鈕（ai_demo） | 第一次確認追蹤 |
 

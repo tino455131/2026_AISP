@@ -1,9 +1,9 @@
 """選 AI 來源：和摘要器同一套（meeting_ai），預設用這台電腦的 Claude Code。
 
-    --ai claude-code（預設）| claude | openai | 模組路徑:類別名稱
+    --ai claude-code（預設）| openai | 模組路徑:類別名稱
     或環境變數 AI_DEMO_ENGINE
 
-只要是 meeting_ai.llm.LLMSummarizer 的子類別（有 generate(system_prompt, user_text, schema)）就能用；
+只要有 generate(system_prompt, user_text, schema)（例如 meeting_ai.llm.LLMSummarizer 的子類別）就能用；
 simple 只會找關鍵字，不能用在這裡。
 """
 
@@ -21,7 +21,7 @@ def get_engine(name: str | None = None):
     chosen = name or os.environ.get("AI_DEMO_ENGINE") or follow or "claude-code"
     engine = get_summarizer(chosen)
     if not callable(getattr(engine, "generate", None)):
-        raise ValueError(f"{chosen} 不是語言模型，不能用在 AI 功能（請用 claude-code、claude 或 openai）")
+        raise ValueError(f"{chosen} 不是語言模型，不能用在 AI 功能（請用 claude-code 或 openai）")
     return engine
 
 

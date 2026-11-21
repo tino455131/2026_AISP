@@ -48,25 +48,25 @@ bot 有兩個測試指令，結果**只有下指令的人看得到**：
 在 repo 根目錄執行：
 
 ```bash
-voice_stt/.venv/Scripts/python.exe -m ai_demo list
+voice_bot/voice_stt/.venv/Scripts/python.exe -m ai_demo list
 ```
 
 ```bash
-voice_stt/.venv/Scripts/python.exe -m ai_demo show <會議ID>
+voice_bot/voice_stt/.venv/Scripts/python.exe -m ai_demo show <會議ID>
 ```
 
 ```bash
-voice_stt/.venv/Scripts/python.exe -m ai_demo tasks <會議ID> --leader <組長的 Discord ID>
+voice_bot/voice_stt/.venv/Scripts/python.exe -m ai_demo tasks <會議ID> --leader <組長的 Discord ID>
 ```
 
 ```bash
-voice_stt/.venv/Scripts/python.exe -m ai_demo ask <會議ID> "誰負責期中考出題？"
+voice_bot/voice_stt/.venv/Scripts/python.exe -m ai_demo ask <會議ID> "誰負責期中考出題？"
 ```
 
 | 選項 | 說明 |
 |---|---|
 | `--ai` | AI 來源：`claude-code`、`claude`、`openai`，或 `模組路徑:類別名稱`。沒給的話依序看 `AI_DEMO_ENGINE`、正在用的摘要器（`simple` 除外），最後才是 `claude-code`。所以 bot 啟動時加 `--summarizer openai`，`/ai` 也會跟著改用 ChatGPT |
-| `--db` | 資料庫，預設 `discord_bot/data/messages.sqlite3` |
+| `--db` | 資料庫，預設是根目錄 `.env` 的 `BOT_DB`，沒填就是 `data/messages.sqlite3` |
 | `--json` | 印出原始結果，欄位名稱照 spec |
 | `--bot` | 給 voice_bot 呼叫：只印一行 `RESULT {json}`，Discord ID 用字串（數字太長，JavaScript 放不下） |
 | `--leader` | 組長的 Discord ID。文字會議預設是下 `/meeting start` 的人；語音沒給的話，照 spec 全部只會是提案 |
@@ -107,7 +107,7 @@ voice_stt/.venv/Scripts/python.exe -m ai_demo ask <會議ID> "誰負責期中考
 
 ```bash
 cd ai_demo
-../voice_stt/.venv/Scripts/python.exe -m pytest
+../voice_bot/voice_stt/.venv/Scripts/python.exe -m pytest
 ```
 
 測試用暫時的資料庫和假 AI，不會送出任何東西。

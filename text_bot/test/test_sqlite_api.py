@@ -16,6 +16,16 @@ def line(text: str) -> NewLine:
     return NewLine(7, CREATED, CREATED, text, text, 0.9)
 
 
+def meeting(meeting_id: str, guild_id: int, channel_id: int) -> dict:
+    return {
+        "meeting_id": meeting_id, "guild_id": guild_id, "channel_id": channel_id, "started_by": 7,
+        "started_at": CREATED, "ended_at": CREATED, "start_message_id": 1, "end_message_id": 9,
+        "message_count": 2, "summary": {"summary": "確認分工", "decisions": [], "action_items": []},
+        "source_message_ids": {1: "5", 2: "6"}, "speakers": {"S1": "7"},
+        "model": "test", "prompt_version": "v1", "created_at": CREATED,
+    }
+
+
 class SQLiteAPITests(unittest.TestCase):
     def setUp(self) -> None:
         temporary = tempfile.TemporaryDirectory(dir=Path(__file__).parent)
@@ -41,6 +51,19 @@ class SQLiteAPITests(unittest.TestCase):
         self.assertEqual(reopened.get_session_summary("s1").content, "進度摘要")
         with closing(sqlite3.connect(self.path)) as connection:
             self.assertEqual(connection.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+
+    def test_text_meeting_round_trip_and_replace(self) -> None:
+        store = SQLiteStore(self.path)
+        store.save_text_meeting(meeting("mtg-101-1", 10, 101))
+        saved = SQLiteStore(self.path).get_text_meeting("mtg-101-1")
+        self.assertEqual(saved["summary"]["summary"], "確認分工")
+        self.assertEqual(saved["source_message_ids"], {1: "5", 2: "6"})  # keys back to int
+        self.assertEqual(saved["speakers"], {"S1": "7"})
+        store.save_text_meeting({**meeting("mtg-101-1", 10, 101), "message_count": 3})  # ended again: replaced
+        self.assertEqual(store.get_text_meeting("mtg-101-1")["message_count"], 3)
+        self.assertIsNone(store.get_text_meeting("mtg-nope"))
+        with self.assertRaises(KeyError):
+            store.save_text_meeting({"meeting_id": "mtg-incomplete"})
 
     def test_existing_text_and_voice_rows_survive_initialization(self) -> None:
         # A file created with the old table layout should open without data migration.
@@ -92,8 +115,11 @@ class SQLiteAPITests(unittest.TestCase):
             store.create_voice_session(session_id, guild_id, channel_id, CREATED)
             store.add_transcript_lines(session_id, [line(session_id)])
             store.save_session_summary(session_id, session_id, "test", "v1", CREATED)
+            store.save_text_meeting(meeting(f"mtg-{session_id}", guild_id, channel_id))
 
         store.delete_channel(10, 301)
+        self.assertIsNone(store.get_text_meeting("mtg-target"))  # a summary of that channel goes with it
+        self.assertIsNotNone(store.get_text_meeting("mtg-same-guild"))
         self.assertEqual(store.list_recent_messages(10, 301), [])
         self.assertIsNone(store.get_last_backfilled_message_id(10, 301))
         self.assertEqual(store.list_transcript_lines("target"), [])
@@ -106,6 +132,8 @@ class SQLiteAPITests(unittest.TestCase):
         self.assertEqual(store.list_recent_messages(10, 302), [])
         self.assertEqual(store.list_transcript_lines("same-guild"), [])
         self.assertIsNone(store.get_session_summary("same-guild"))
+        self.assertIsNone(store.get_text_meeting("mtg-same-guild"))
+        self.assertIsNotNone(store.get_text_meeting("mtg-other-guild"))
         self.assertEqual(len(store.list_recent_messages(11, 301)), 1)
         self.assertEqual(len(store.list_transcript_lines("other-guild")), 1)
 

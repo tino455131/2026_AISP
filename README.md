@@ -62,20 +62,23 @@ export LD_LIBRARY_PATH="$cuda_libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 | 欄位 | 用途 |
 |---|---|
-| `TEXT_BOT_TOKEN` | 文字 Bot 的 Discord Token。 |
-| `VOICE_BOT_TOKEN` | 語音 Bot 的 Discord Token，也用於查看逐字稿與摘要。 |
+| `TEXT_BOT_TOKEN` | 文字 Bot 的 Discord Token。只有單獨跑 `text_bot/bot.py` 時才用。 |
+| `VOICE_BOT_TOKEN` | 語音 Bot 的 Discord Token，也用於查看逐字稿與摘要。合併版（`team_bot`）的語音、指令、文字記錄都用這個帳號。 |
 | `DISCORD_GUILD_ID` | 兩個 Bot 共用的 Discord 伺服器 ID。 |
 | `BOT_DB` | 選填，預設為 `data/messages.sqlite3`。相對路徑以根目錄為準。 |
-| `MEETING_SUMMARIZER` | 預設 `simple`。使用 `openai` 時需填 `OPENAI_API_KEY`，可用 `MEETING_SUMMARY_MODEL` 選模型。 |
+| `MEETING_SUMMARIZER` | 預設 `simple`。使用 `openai` 時需填 `OPENAI_API_KEY`，可用 `MEETING_SUMMARY_MODEL` 選模型。也可以填 `claude-code`（這台電腦已登入的 Claude Code，測試用）或 `模組路徑:類別名稱`。 |
 
 其他錄音與路徑選項見 [.env.example](.env.example)。環境變數優先於 .env。已有舊設定者，從各 Bot 原本的 .env 將 `DISCORD_TOKEN` 分別填入兩個新欄位，並確認兩個 Bot 使用同一個伺服器 ID。現有資料庫的搬移步驟見 [SQL API 文件](SQL_API_README.md#搬移既有資料庫)。
 
 ### 執行
 
-以兩個終端機分別啟動文字及語音 Bot。先依 [文字 Bot](text_bot/README.md) 與 [語音 Bot](voice_bot/README.md) 的說明，設定各自的 Discord 應用程式與邀請權限。
+**合併版（建議）**：Discord 裡只有一個 bot，語音錄音、所有指令（`/record`、`/meeting`、`/ai`、`/ping`）和文字訊息記錄都由它負責，只需要 `VOICE_BOT_TOKEN`。第一次使用前要在 Developer Portal 為這個 bot 開 Message Content Intent 和 Server Members Intent，見 [team_bot](team_bot/README.md)。
+
+也可以照舊用兩個終端機分別啟動文字及語音 Bot（兩個帳號）。先依 [文字 Bot](text_bot/README.md) 與 [語音 Bot](voice_bot/README.md) 的說明，設定各自的 Discord 應用程式與邀請權限。合併版和單獨的文字 Bot 不要同時跑，否則訊息會記兩次。
 
 | 操作 | Windows PowerShell | macOS／Linux |
 |---|---|---|
+| 合併版（一個 bot） | `node team_bot/start.mjs` | `node team_bot/start.mjs` |
 | 文字 Bot | `./text_bot/.venv/Scripts/python.exe text_bot/bot.py` | `./text_bot/.venv/bin/python text_bot/bot.py` |
 | 語音 Bot | `npm.cmd --prefix voice_bot start` | `npm --prefix voice_bot start` |
 | 離線檢查語音 Bot 設定 | `npm.cmd --prefix voice_bot run check -- --offline` | `npm --prefix voice_bot run check -- --offline` |

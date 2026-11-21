@@ -9,8 +9,7 @@ from ai_demo import cli
 from ai_demo.ask import ask
 from ai_demo.local_data import LocalData
 from ai_demo.tasks import propose_tasks
-from meeting_ai.summarize_session import load_transcript_store
-from meeting_ai.text_meeting_store import TextMeetingStore
+from sqlite_api import NewLine, SQLiteStore
 
 LEADER, MEMBER, OTHER = 111, 222, 333
 
@@ -38,11 +37,10 @@ def item(**overrides):
 @pytest.fixture
 def db(tmp_path):
     path = tmp_path / "messages.sqlite3"
-    module = load_transcript_store()
-    store = module.TranscriptStore(path)
-    store.start_session("rec-1", 9, 10, "2026-11-20T06:00:00+00:00", started_by=LEADER)
-    line = lambda who, at, text, conf=0.9: module.NewLine(who, at, at, text, text, conf)  # noqa: E731
-    store.add_lines("rec-1", [
+    store = SQLiteStore(path)
+    store.create_voice_session("rec-1", 9, 10, "2026-11-20T06:00:00+00:00", started_by=LEADER)
+    line = lambda who, at, text, conf=0.9: NewLine(who, at, at, text, text, conf)  # noqa: E731
+    store.add_transcript_lines("rec-1", [
         line(LEADER, "2026-11-20T06:00:01+00:00", "C 負責第一份小考，下週五前完成"),
         line(MEMBER, "2026-11-20T06:00:05+00:00", "好，我來"),
         line(MEMBER, "2026-11-20T06:00:09+00:00", "要不要讓 D 先準備期中考", 0.2),
@@ -50,7 +48,7 @@ def db(tmp_path):
     recordings = tmp_path / "recordings" / "rec-1"
     recordings.mkdir(parents=True)
     (recordings / "manifest.json").write_text(json.dumps({"names": {str(LEADER): "A", str(MEMBER): "C"}}), encoding="utf-8")
-    TextMeetingStore(path).save({
+    store.save_text_meeting({
         "meeting_id": "mtg-10-1", "guild_id": 9, "channel_id": 10, "started_by": LEADER,
         "started_at": "2026-11-21T06:00:00+00:00", "ended_at": "2026-11-21T06:30:00+00:00",
         "start_message_id": 1, "end_message_id": 99, "message_count": 2,
