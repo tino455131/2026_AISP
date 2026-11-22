@@ -1,0 +1,47 @@
+# ---- Secrets: never commit tokens / API keys --------------------------------
+.env
+*.env
+!.env.example
+
+# ---- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# ---- Node.js ----------------------------------------------------------------
+node_modules/
+
+# ---- Data: recordings, transcripts and databases contain people's private ---
+# ---- speech/messages and must stay on the host machine ----------------------
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+/data/
+recordings/
+transcripts/
+models/
+*.wav
+*.mp3
+*.m4a
+*.ogg
+*.flac
+*.opus
+
+# ---- OS / editors -----------------------------------------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ---- Fake test data made by demo_data/make_demo_db.py ----------------------
+demo_data/out/
+
+# --- Local AI agent configurations ---
+.claude/
+AGENTS.md
+CLAUDE.md
