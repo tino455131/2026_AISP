@@ -128,6 +128,8 @@ class BotClient(discord.Client):
             message.created_at.isoformat(),
         )
 
+        logging.info("New message [channel=%d, author=%d]: %r", message.channel.id, message.author.id, message.content)
+
     async def on_raw_message_edit(self, payload: discord.RawMessageUpdateEvent) -> None:
         if payload.guild_id != self.guild_id:
             return

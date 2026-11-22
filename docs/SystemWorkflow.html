@@ -92,130 +92,138 @@
       nav, .skip { display: none; }
       .flow { overflow: visible; }
     }
+
+    .layers { display: grid; gap: .75rem; margin: 0 0 1rem; }
+    .layers > div { padding: .75rem 1rem; border: 1px solid var(--line); border-radius: 10px; }
+    .layers dt { font-weight: 800; }
+    .layers dd { margin: .18rem 0 0; color: var(--muted); }
+    .review-list > div { border-left: 4px solid #c15a16; }
+    .flow small { overflow-wrap: anywhere; }
   </style>
 </head>
 <body>
   <a class="skip" href="#main">跳到流程圖</a>
   <div class="shell">
     <header>
-      <div class="eyebrow">2026 AISP · SystemWorkflow</div>
       <h1>Discord 團隊協作助手：系統流程圖</h1>
-      <p class="lead">依目前 <code>ping-voice-tmp</code> 分支的程式碼，將系統分成 SQL、文字 Bot、語音 Bot、AI 四區。實線代表已有程式碼的路徑；灰色虛線卡片代表尚未接上的產品功能。這張圖描述程式流程，不代表已完成 Discord 實機驗收。</p>
-      <div class="meta"><span class="pill">程式碼已有</span><span class="pill future">尚未接上</span><span>最後核對：2026-11-21</span></div>
+      <p class="lead">合併版由 <a href="../team_bot/start.mjs"><code>team_bot/start.mjs</code></a> 啟動兩個程序，對 Discord 使用同一個 Bot 帳號。Node.js 處理指令、語音和 AI 互動，Python 記錄文字訊息。</p>
+      <p class="overview-caption">核對版本 <code>ping-voice-tmp-merge · 8320450</code>（2026-11-22）</p>
     </header>
 
     <nav aria-label="跳到系統區域">
-      <a href="#overview">總覽</a><a href="#sql">SQL</a><a href="#text-bot">文字 Bot</a><a href="#voice-bot">語音 Bot</a><a href="#ai">AI</a>
+      <a href="#overview">總覽</a><a href="#sql">SQL</a><a href="#text-bot">文字 Bot</a><a href="#voice-bot">語音 Bot</a><a href="#ai">AI</a><a href="#review">合併後檢查</a>
     </nav>
 
     <main id="main">
       <section class="panel" id="overview" aria-labelledby="overview-title">
-        <h2 id="overview-title">四個系統如何連在一起</h2>
-        <p class="section-intro">文字 Bot 與語音 Bot 蒐集資料；SQL 保存文字、逐字稿與摘要；AI 讀取逐字稿產生摘要。使用者要看保存內容時，讀取路徑會重新向 Discord 核對權限。</p>
+        <h2 id="overview-title">合併版的程序與資料流</h2>
+        <p>從根目錄執行 <code>node team_bot/start.mjs</code>。兩個程序使用根目錄 .env 的 <code>VOICE_BOT_TOKEN</code>、<code>DISCORD_GUILD_ID</code> 與 <code>BOT_DB</code>。</p>
         <figure class="diagram">
-          <svg viewBox="0 0 1120 470" role="img" aria-labelledby="diagram-title diagram-description">
-            <title id="diagram-title">SQL、文字 Bot、語音 Bot、AI 四系統資料流</title>
-            <desc id="diagram-description">文字 Bot 和語音 Bot 寫入 SQL。語音 Bot 呼叫 AI 摘要；AI 從 SQL 讀取逐字稿並將摘要寫回。使用者查看資料時透過授權 reader 從 SQL 讀出。</desc>
-            <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#51647d"/></marker></defs>
-            <path d="M 324 112 L 448 184" fill="none" stroke="#51647d" stroke-width="3" marker-end="url(#arrow)"/>
-            <text class="link-label" x="335" y="126">文字訊息</text>
-            <path d="M 324 323 L 448 252" fill="none" stroke="#51647d" stroke-width="3" marker-end="url(#arrow)"/>
-            <text class="link-label" x="335" y="319">逐字稿</text>
-            <path d="M 686 190 L 822 190" fill="none" stroke="#51647d" stroke-width="3" marker-end="url(#arrow)"/>
-            <text class="link-label" x="701" y="177">系統讀取逐字稿</text>
-            <path d="M 822 254 L 686 254" fill="none" stroke="#51647d" stroke-width="3" marker-end="url(#arrow)"/>
-            <text class="link-label" x="711" y="278">寫回摘要</text>
-            <path d="M 324 365 C 502 458, 699 456, 822 326" fill="none" stroke="#51647d" stroke-width="3" marker-end="url(#arrow)"/>
-            <text class="link-label" x="476" y="429">停止錄音後觸發摘要</text>
-            <rect x="34" y="48" width="290" height="126" rx="18" fill="#eaf2ff" stroke="#2563eb" stroke-width="2"/>
-            <text class="box-title" x="57" y="91">文字 Bot</text><text class="box-sub" x="57" y="119">歷史匯入 · 新訊息 · 編輯刪除</text><text class="box-sub" x="57" y="144">Python / text_bot</text>
-            <rect x="34" y="257" width="290" height="126" rx="18" fill="#e6f7f4" stroke="#0d9488" stroke-width="2"/>
-            <text class="box-title" x="57" y="300">語音 Bot</text><text class="box-sub" x="57" y="328">同意錄音 · 本機轉文字</text><text class="box-sub" x="57" y="353">Node.js / voice_bot</text>
-            <rect x="448" y="155" width="238" height="126" rx="18" fill="#f2ebff" stroke="#7c3aed" stroke-width="2"/>
-            <text class="box-title" x="471" y="198">SQL</text><text class="box-sub" x="471" y="226">sqlite_api.py → messages.sqlite3</text><text class="box-sub" x="471" y="251">文字 · 逐字稿 · 摘要</text>
-            <rect x="822" y="155" width="264" height="176" rx="18" fill="#fff2e9" stroke="#c15a16" stroke-width="2"/>
-            <text class="box-title" x="845" y="198">AI</text><text class="box-sub" x="845" y="226">會議摘要（simple / OpenAI）</text><text class="box-sub" x="845" y="252">依來源行號產生決定與待辦</text><text class="box-sub" x="845" y="288">組長確認與委派：尚未接上</text>
+          <svg viewBox="0 0 1120 480" role="img" aria-labelledby="diagram-title diagram-description">
+            <title id="diagram-title">合併版團隊 Bot 的四區流程</title>
+            <desc id="diagram-description">team_bot 啟動 Python 文字記錄及 Node.js 指令和語音。文字記錄與轉寫寫入 SQLite。文字和語音會議觸發摘要，AI 測試功能查閱會議內容和追蹤任務。</desc>
+            <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#51647d"/></marker></defs>
+            <g fill="none" stroke="#51647d" stroke-width="2.5" marker-end="url(#arrow)">
+              <path d="M98 99 V126"/><path d="M55 99 H23 V304 H44"/>
+              <path d="M325 181 L430 222"/><path d="M325 302 L430 270"/>
+              <path d="M693 222 H818"/><path d="M818 271 H693"/>
+              <path d="M325 365 V414 H949 V321"/>
+            </g>
+            <text class="link-label" x="344" y="183">文字訊息</text><text class="link-label" x="344" y="307">轉寫結果</text>
+            <text class="link-label" x="706" y="208">資料讀取</text><text class="link-label" x="706" y="293">摘要與追蹤</text>
+            <text class="link-label" x="471" y="438">文字會議、錄音轉寫後及 /ai 指令呼叫 AI 模組</text>
+            <rect x="44" y="26" width="281" height="73" rx="14" fill="#f0f5fb" stroke="#71839a" stroke-width="2"/>
+            <text class="box-title" x="64" y="56">team_bot/start.mjs</text>
+            <text class="box-sub" x="64" y="81">同一帳號啟動兩個程序</text>
+            <rect x="44" y="126" width="281" height="112" rx="16" fill="#eaf2ff" stroke="#2563eb" stroke-width="2"/>
+            <text class="box-title" x="64" y="166">文字 Bot</text>
+            <text class="box-sub" x="64" y="194">Python · text_logger → text_bot</text>
+            <text class="box-sub" x="64" y="216">歷史匯入、即時同步</text>
+            <rect x="44" y="254" width="281" height="112" rx="16" fill="#e6f7f4" stroke="#0d9488" stroke-width="2"/>
+            <text class="box-title" x="64" y="294">語音 Bot</text>
+            <text class="box-sub" x="64" y="322">/record、/meeting、/ai、/ping</text>
+            <text class="box-sub" x="64" y="344">Node.js · 錄音及呼叫 Python</text>
+            <rect x="430" y="176" width="263" height="132" rx="16" fill="#f2ebff" stroke="#7c3aed" stroke-width="2"/>
+            <text class="box-title" x="451" y="216">SQL</text>
+            <text class="box-sub" x="451" y="245">data/messages.sqlite3</text>
+            <text class="box-sub" x="451" y="271">聊天、兩種會議、摘要與追蹤</text>
+            <rect x="818" y="176" width="262" height="146" rx="16" fill="#fff2e9" stroke="#c15a16" stroke-width="2"/>
+            <text class="box-title" x="838" y="216">AI</text>
+            <text class="box-sub" x="838" y="245">meeting_ai：語音與文字摘要</text>
+            <text class="box-sub" x="838" y="270">ai_demo：問答、任務候選</text>
+            <text class="box-sub" x="838" y="295">組長確認後可做一次進度詢問</text>
           </svg>
         </figure>
-        <p class="overview-caption">箭頭表示資料或呼叫方向。讀取 SQL 前的權限檢查、錄音同意條件與失敗路徑在下方各系統詳圖中展開。</p>
+        <p class="overview-caption">也可以分開啟動兩個 Bot。單獨的文字 Bot 使用 <code>TEXT_BOT_TOKEN</code>，提供文字記錄與 <code>/ping</code>。單獨啟動 Node.js 仍可使用 <code>/meeting</code>，會議發言由 Discord 即時讀取。<a href="../team_bot/README.md">合併版啟動說明</a></p>
       </section>
 
       <section class="panel system sql" id="sql" aria-labelledby="sql-title">
-        <div class="system-head"><span class="number">1</span><h2 id="sql-title">SQL｜共同資料層</h2></div>
-        <p class="section-intro">文字 Bot、語音轉寫與 AI 摘要都使用專案根目錄的 <a href="../sqlite_api.py"><code>sqlite_api.py</code></a>；單一 <code>SQLiteStore</code> 預設存取根目錄的 <code>data/messages.sqlite3</code>。對使用者讀取時，應經過授權 reader。API 用法與根目錄設定見 <a href="../SQL_API_README.md">SQL API 文件</a>與<a href="../README.md#從專案根目錄設定與啟動">安裝說明</a>。</p>
-        <div class="flow-label">資料寫入與保存</div>
-        <ol class="flow">
-          <li><strong>文字 Bot 呼叫 SQLiteStore</strong><small>依伺服器、頻道與訊息 ID 保存文字及匯入進度。</small><a class="file" href="../sqlite_api.py">sqlite_api.py</a></li>
-          <li><strong>語音轉寫與 AI 呼叫同一介面</strong><small>保存一場錄音、逐字稿句子與會議摘要。</small><a class="file" href="../sqlite_api.py">sqlite_api.py</a></li>
-          <li class="destination"><strong>同一份 SQLite</strong><small>單一儲存模組建立資料表並設定 WAL，支援多個程式寫入。</small><code>data/messages.sqlite3</code></li>
-        </ol>
-        <ul class="data-list" aria-label="主要資料表"><li>messages</li><li>backfill_state</li><li>voice_sessions</li><li>voice_lines</li><li>voice_session_summaries</li></ul>
-        <div class="note"><strong>讀取邊界：</strong><code>SQLiteStore</code> 的底層讀取方法本身不驗證 Discord 權限。面向使用者或 AI 的讀取請使用 <code>AuthorizedMessageReader</code> 或 <code>AuthorizedTranscriptReader</code>；內部轉寫與摘要流程可使用 store 處理資料。</div>
+        <h2 id="sql-title">SQL｜共用資料庫</h2>
+        <p class="section-intro">根目錄的 <a href="../sqlite_api.py"><code>sqlite_api.py</code></a> 提供共用的 <code>SQLiteStore</code>，管理文字訊息、逐字稿與會議摘要。預設資料庫是 <code>data/messages.sqlite3</code>，可用 <code>BOT_DB</code> 指向其他位置。</p>
+        <dl class="layers">
+          <div><dt>聊天</dt><dd><code>messages</code>、<code>backfill_state</code>、<code>deleted_messages</code> 記錄文字和匯入進度。</dd></div>
+          <div><dt>語音會議</dt><dd><code>voice_sessions</code>、<code>voice_lines</code>、<code>voice_session_summaries</code> 保存錄音資訊、逐字稿與摘要。</dd></div>
+          <div><dt>文字會議</dt><dd><code>text_meetings</code> 保存起訖訊息 ID、摘要和引用。獨立的文字記錄程序會將一般聊天寫入 <code>messages</code>。</dd></div>
+          <div><dt>測試追蹤</dt><dd><code>demo_tasks</code>、<code>demo_inquiries</code>、<code>demo_progress_updates</code> 保存確認、送達與進度狀態。<code>ai_demo</code> 的 <a href="../ai_demo/local_data.py"><code>local_data.py</code></a> 和 <a href="../ai_demo/tracking.py"><code>tracking.py</code></a> 直接存取同一資料庫，分別負責讀取會議資料和讀寫追蹤狀態。</dd></div>
+        </dl>
+        <p class="note">面向使用者的查詢應在應用層確認來源與受眾權限。底層 SQLite 讀取不具備 Discord 授權功能。合併版的文字記錄目前會保存一般聊天，<code>spec.md</code> 所述的保存限制仍待落實。</p>
+        <p><a href="database_schema.md">資料表結構</a> · <a href="../SQL_API_README.md">SQL API 使用方式</a></p>
       </section>
 
       <section class="panel system text" id="text-bot" aria-labelledby="text-title">
-        <div class="system-head"><span class="number">2</span><h2 id="text-title">文字 Bot｜Discord 訊息記憶</h2></div>
-        <p class="section-intro">Python bot 只處理設定中的一個 Discord 伺服器。它能匯入可讀取的舊訊息，並記錄後續文字訊息與編輯、刪除事件。</p>
-        <div class="flow-label">寫入流程</div>
+        <h2 id="text-title">文字 Bot｜即時記錄與文字會議</h2>
+        <h3 class="flow-label">Python 文字記錄</h3>
         <ol class="flow">
-          <li><strong>Discord 頻道</strong><small>文字頻道、語音／舞台頻道文字聊天、討論串。</small></li>
-          <li><strong>BotClient 事件</strong><small>啟動時 backfill_history；上線後 on_message 與編輯／刪除事件。</small><a class="file" href="../text_bot/bot.py">bot.py</a></li>
-          <li><strong>SQLiteStore</strong><small>按穩定的 guild_id、channel_id、message_id 保存或刪除。</small><a class="file" href="../sqlite_api.py">sqlite_api.py</a></li>
-          <li class="destination"><strong>SQL：messages</strong><small>只保存文字內容；無文字的附件不會存入。</small></li>
+          <li><strong>Discord 訊息事件</strong><small>合併版的文字記錄程序接收指定伺服器的訊息事件。</small><a class="file" href="../team_bot/text_logger.py">text_logger.py</a></li>
+          <li><strong>匯入與即時同步</strong><small>Python 啟動時匯入歷史。收到新訊息時寫入 SQLite 並印到 Terminal，也會同步編輯和刪除。</small><a class="file" href="../text_bot/bot.py">bot.py</a></li>
+          <li class="destination"><strong>SQLite 聊天紀錄</strong><small>依伺服器、頻道與訊息 ID 保存。授權 reader 會先核對使用者的 Discord 權限再讀取。</small><a class="file" href="../text_bot/channel_access.py">channel_access.py</a></li>
         </ol>
-        <div class="flow-label">授權讀取流程（提供後續 AI 使用）</div>
+        <h3 class="flow-label">Node.js 的 /meeting 指令</h3>
         <ol class="flow">
-          <li><strong>指定讀取者與頻道</strong><small>呼叫時帶 member_id 與 channel_id，不以其他頻道權限替代。</small></li>
-          <li><strong>ChannelAccess</strong><small>向 Discord 查現在的 View Channel、Read Message History；私人討論串再核對成員資格。</small><a class="file" href="../text_bot/channel_access.py">channel_access.py</a></li>
-          <li><strong>AuthorizedMessageReader</strong><small>確認通過才從同一頻道讀近期訊息；無法確認時拒絕。</small><a class="file" href="../text_bot/channel_access.py">channel_access.py</a></li>
-          <li class="destination"><strong>SQL：messages</strong><small>回傳該頻道的近期文字訊息。</small></li>
+          <li><strong>組長開始會議</strong><small>記錄開始訊息，將進行中的會議保存到錄音資料夾內的 JSON。</small><a class="file" href="../voice_bot/src/meetings.js">meetings.js</a></li>
+          <li><strong>組長結束會議</strong><small>向 Discord 讀取起訖訊息之間的成員發言。</small></li>
+          <li class="destination"><strong>摘要與原頻道紀錄</strong><small>產生摘要、決定與候選待辦，保存至 text_meetings 並將紀錄貼回來源頻道。</small><a class="file" href="../meeting_ai/summarize_text_meeting.py">summarize_text_meeting.py</a></li>
         </ol>
-        <div class="note">目前 <code>bot.py</code> 對使用者公開的斜線指令只有 <code>/ping</code>；文字問答 <code>/ask</code> 在這個分支尚未接上。</div>
       </section>
 
       <section class="panel system voice" id="voice-bot" aria-labelledby="voice-title">
-        <div class="system-head"><span class="number">3</span><h2 id="voice-title">語音 Bot｜同意錄音與轉文字</h2></div>
-        <p class="section-intro">Node.js bot 管理 Discord 語音連線與使用者同意；Python <code>voice_bot/voice_stt</code> 在本機將同意者的錄音轉成逐字稿。</p>
-        <div class="flow-label">錄音與轉寫</div>
+        <h2 id="voice-title">語音 Bot｜錄音、轉寫與查看</h2>
         <ol class="flow">
-          <li><strong>/record start</strong><small>RecordController 檢查組長身分，加入組長所在語音頻道並貼出同意按鈕。</small><a class="file" href="../voice_bot/src/commands.js">commands.js</a></li>
-          <li><strong>ConsentBook</strong><small>預設未同意；只錄已按「同意錄音」的人。撤回時刪除該次已錄片段。</small><a class="file" href="../voice_bot/src/consent.js">consent.js</a></li>
-          <li><strong>RecordingSession</strong><small>將同意者的發言存成 WAV 片段及 manifest。</small><a class="file" href="../voice_bot/src/recorder.js">recorder.js</a></li>
-          <li><strong>/record stop</strong><small>runIngest 呼叫 Python；沒錄到片段時不產生逐字稿。</small><a class="file" href="../voice_bot/src/ingest.js">ingest.js</a></li>
-          <li><strong>voice_stt → SQLiteStore</strong><small>合併相近片段、以本機 Breeze-ASR-25 轉寫，再透過共用 API 保存。</small><a class="file" href="../voice_bot/voice_stt/stt/ingest_recording.py">ingest_recording.py</a></li>
-          <li class="destination"><strong>SQL：voice_sessions / voice_lines</strong><small>以會議、語音頻道與說話者保存逐字稿。</small></li>
+          <li><strong>開始錄音</strong><small>組長可下 /record start。自動錄音預設開啟，未限制頻道時會掃描可用的語音頻道。</small><a class="file" href="../voice_bot/src/commands.js">commands.js</a> <a class="file" href="../voice_bot/src/config.js">config.js</a></li>
+          <li><strong>錄音設定</strong><small>direct 預設直接納入，可按「不要錄我」；ask 需先按同意。錄音時保存 WAV 和 manifest。</small><a class="file" href="../voice_bot/src/consent.js">consent.js</a></li>
+          <li><strong>停止後轉寫</strong><small>轉寫程式把逐字稿寫入 SQLite。預設使用本機 Breeze，可換 OpenAI API 或自訂轉寫器。</small><a class="file" href="../voice_bot/voice_stt/stt/ingest_recording.py">ingest_recording.py</a></li>
+          <li class="destination"><strong>產生摘要與查看按鈕</strong><small>有逐字稿時產生摘要。點按查看時，<code>show_session.py</code> 透過 <code>transcript_reader.py</code> 驗證來源頻道權限，回覆只給點按者。</small><a class="file" href="../meeting_ai/summarize_session.py">summarize_session.py</a> <a class="file" href="../meeting_ai/show_session.py">show_session.py</a> <a class="file" href="../text_bot/transcript_reader.py">transcript_reader.py</a></li>
         </ol>
-        <div class="flow-label">使用者查看逐字稿或摘要</div>
-        <ol class="flow">
-          <li><strong>查看按鈕</strong><small>點選「查看逐字稿」或「查看摘要」。</small><a class="file" href="../voice_bot/src/commands.js">commands.js</a></li>
-          <li><strong>show_session</strong><small>以按鈕使用者的 ID 發起讀取；透過 reader 查資料。</small><a class="file" href="../meeting_ai/show_session.py">show_session.py</a></li>
-          <li><strong>ChannelAccess + TranscriptReader</strong><small>按現在語音頻道的權限檢查；拒絕或無法確認都不提供內容。</small><a class="file" href="../text_bot/transcript_reader.py">transcript_reader.py</a></li>
-          <li class="destination"><strong>僅點選者看得到</strong><small>Discord ephemeral 回覆，不把整份逐字稿或摘要公開貼到頻道。</small></li>
-        </ol>
-        <div class="note">錄音的 Discord 實際收音流程仍需測試伺服器驗收；本圖表示目前程式碼中的呼叫路徑。</div>
+        <p class="note">測試時可用 <code>node team_bot/start.mjs --consent ask --auto-record off</code>，由組長開始並等成員同意。<a href="#direct-recording">Direct 模式問題</a></p>
       </section>
 
       <section class="panel system ai" id="ai" aria-labelledby="ai-title">
-        <div class="system-head"><span class="number">4</span><h2 id="ai-title">AI｜會議摘要與未來協作功能</h2></div>
-        <p class="section-intro">語音 Bot 在轉寫成功後呼叫 <code>meeting_ai</code>。摘要器可替換；目前預設是本機規則版 <code>simple</code>，另有需 API key 的 <code>openai</code> 版。</p>
-        <div class="flow-label">已寫入程式碼的會議整理流程</div>
+        <h2 id="ai-title">AI｜摘要、問答與測試追蹤</h2>
+        <p class="section-intro"><code>meeting_ai</code> 處理兩種會議的摘要。預設 <code>simple</code>，可切換 OpenAI、Claude Code 或自訂實作。<a href="../meeting_ai/README.md">摘要器設定</a></p>
         <ol class="flow">
-          <li><strong>SQL：voice_lines</strong><small>讀取單場會議逐字稿；不確定的句子標為 uncertain。</small></li>
-          <li><strong>summarize_session → SQLiteStore</strong><small>讀取 MeetingLine，呼叫可替換的 MeetingSummarizer，再將結果寫回共用 API。</small><a class="file" href="../meeting_ai/summarize_session.py">summarize_session.py</a></li>
-          <li><strong>simple 或 OpenAI</strong><small>產生摘要、決定與待辦草案，決定／待辦保留來源行號。</small><a class="file" href="../meeting_ai/interface.py">interface.py</a></li>
-          <li class="destination"><strong>SQL：voice_session_summaries</strong><small>保存內容、摘要器名稱、prompt 版本與來源句數；供查看按鈕讀取。</small></li>
+          <li><strong>選擇一場會議</strong><small>/ai tasks 或 /ai ask 會先檢查來源頻道的存取權。文字會議向 Discord 讀原文，語音會議讀逐字稿。</small><a class="file" href="../voice_bot/src/ai.js">ai.js</a></li>
+          <li><strong>私下回覆</strong><small><code>ask.py</code> 產生回答，<code>tasks.py</code> 產生任務候選。送出前再檢查存取權限。當 Discord 原文為空時，資料讀取目前仍可能回退到聊天快取。</small><a class="file" href="../ai_demo/ask.py">ask.py</a> <a class="file" href="../ai_demo/tasks.py">tasks.py</a> <a class="file" href="../ai_demo/local_data.py">local_data.py</a></li>
+          <li class="destination"><strong>測試版進度追蹤</strong><small>組長確認後，符合來源權限的負責人收到一輪私訊。按鈕回報會保存狀態，再私訊有來源權限的組長。</small><a class="file" href="../ai_demo/tracking.py">tracking.py</a></li>
         </ol>
-        <div class="flow-label">完整產品目標（目前尚未接上）</div>
-        <ol class="flow">
-          <li class="future"><strong>整合團隊進度</strong><small>結合文字紀錄與會議結果，找出需要處理的問題。</small></li>
-          <li class="future"><strong>提出行動建議</strong><small>產生有來源依據的任務草案。</small></li>
-          <li class="future"><strong>組長確認</strong><small>由組長審核與修改後才採用。</small></li>
-          <li class="future"><strong>委派與協助執行</strong><small>交給對應成員的 AI agent，追蹤協作結果。</small></li>
-        </ol>
-        <div class="note">摘要工作是系統內部處理；把保存內容顯示給使用者時，仍須走授權 reader。目前沒有已接上的跨文字與語音資料 AI 問答、組長審核或任務委派入口。完整目標來自<a href="../README.md">專案 README</a>；AI 讀取保存內容的規則見 <a href="ai_memory_api.md">ai_memory_api.md</a>。</div>
+        <p class="note"><code>/ai tracked</code> 已實作。它目前用來源頻道權限過濾結果，回報私訊的受眾仍需額外限制。測試追蹤目前只發一次詢問。<a href="ai_team_guide.md">AI 團隊接手說明</a></p>
+      </section>
+
+      <section class="panel" id="review" aria-labelledby="review-title">
+        <h2 id="review-title">合併後檢查</h2>
+        <p>本機共通過 114 項 Python 測試與 21 項 Node.js 測試。另有一項檢查在語音轉寫環境依設計跳過，授權查看測試已在文字 Bot 環境執行。下列問題在跨元件流程和例外情境中發現，這些情境仍待修正與驗收。</p>
+        <dl class="layers review-list">
+          <div id="direct-recording"><dt>預設錄音狀態與轉寫不相容</dt><dd>Node.js 將 Direct 模式成員標成 <code>included</code>，Python 只接受 <code>agreed</code>。離線重現顯示，未額外按同意的錄音可被略過並刪除，即使開啟 <code>KEEP_AUDIO</code>。</dd></div>
+          <div><dt>私訊進度的可見範圍過大</dt><dd><code>/ai tracked</code> 會對所有能讀來源頻道的成員顯示負責人回報的狀態。規格指定回報只分享給本人與有來源權限的組長。</dd></div>
+          <div><dt>通知發送失敗時仍可錄音</dt><dd>Direct 模式會先將成員納入錄音。若 Bot 缺少發訊息權限，程式會繼續錄音，成員可能收不到通知或「不要錄我」按鈕。</dd></div>
+          <div><dt>確認追蹤時少了一道來源權限檢查</dt><dd>組長取得預覽後若失去來源頻道權限，仍可能用原本的按鈕建立追蹤。確認時應重新驗證組長的來源權限。</dd></div>
+          <div><dt>空的 Discord 歷史會回退到舊紀錄</dt><dd>文字會議原文是空清單時，<code>ai_demo</code> 會將它當成未提供原文，可能讀回 Bot 離線期間已自 Discord 移除的舊文字。</dd></div>
+          <div><dt>摘要失敗後沒有原會議的重試入口</dt><dd><code>/meeting end</code> 會先移除進行中的會議。之後若讀 Discord 或呼叫模型失敗，再下結束指令找不到原會議。</dd></div>
+          <div><dt>Windows Git Bash 安裝入口缺少</dt><dd>README 仍列出 <code>bash SETUP_Windows</code>，合併後沒有該檔案。Windows 可用 <code>.\SETUP_Windows.ps1</code>。</dd></div>
+        </dl>
+        <p class="overview-caption">本次驗證使用本機測試與假資料。Discord 伺服器、真實錄音和外部模型仍需另外驗收。</p>
       </section>
     </main>
-    <footer>檔案路徑以專案根目錄為基準。此頁不含金鑰、實際訊息或錄音資料；可直接以瀏覽器開啟，無外部套件或網路依賴。</footer>
+    <footer>可直接在瀏覽器開啟此頁。<a href="../README.md">專案 README</a> · <a href="../spec.md">系統規格</a></footer>
   </div>
 </body>
 </html>

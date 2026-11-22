@@ -6,14 +6,13 @@
 
 升級既有專案時，請依下方指令在新路徑建立虛擬環境。若有自訂 `STT_PYTHON` 或 `READER_PYTHON`，請確認指向新位置。
 
-### 一鍵安裝
+### 1-1. 一鍵安裝 (注意: 套件大小約 6 GB)
 
 先安裝 Python 3.11 與 Node.js 22.12 以上（含 npm），再執行對應的安裝腳本。腳本會先列出將安裝的套件與磁碟空間估算，再請你確認。輸入 Y 才會安裝兩個 Python 虛擬環境和語音 Bot 的 Node.js 套件。輸入 N 或直接按 Enter 會取消。只想查看安裝內容時，PowerShell 命令加上 `-Plan`，Bash 命令則加上 `--plan`。
 
 | 作業系統 | 使用的終端機 | 從專案根目錄執行 |
 |---|---|---|
 | Windows x86-64 | PowerShell | `.\SETUP_Windows.ps1` |
-| Windows x86-64 | Git Bash | `bash SETUP_Windows` |
 | macOS | Terminal | `bash SETUP_macOS` |
 | Linux（glibc）或 WSL | Bash | `bash SETUP_Linux` |
 
@@ -27,7 +26,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\SETUP_Windows.ps1
 
 安裝後再編輯根目錄的 `.env`。腳本會保留既有設定，並檢查本機的 Python 與 Node.js 版本。
 
-### 手動安裝
+### 1-2. 手動安裝
 
 #### Windows PowerShell
 
@@ -58,7 +57,7 @@ cuda_libs="$(./voice_bot/voice_stt/.venv/bin/python -c 'from pathlib import Path
 export LD_LIBRARY_PATH="$cuda_libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 ```
 
-### `.env`填寫設定
+### 2. `.env`填寫設定
 
 | 欄位 | 用途 |
 |---|---|
@@ -67,6 +66,8 @@ export LD_LIBRARY_PATH="$cuda_libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 | `DISCORD_GUILD_ID` | 兩個 Bot 共用的 Discord 伺服器 ID。 |
 | `BOT_DB` | 選填，預設為 `data/messages.sqlite3`。相對路徑以根目錄為準。 |
 | `MEETING_SUMMARIZER` | 預設 `simple`。使用 `openai` 時需填 `OPENAI_API_KEY`，可用 `MEETING_SUMMARY_MODEL` 選模型。也可以填 `claude-code`（這台電腦已登入的 Claude Code，測試用）或 `模組路徑:類別名稱`。 |
+
+**(若皓元或ping忘了提供TOKEN要問他們)**
 
 其他錄音與路徑選項見 [.env.example](.env.example)。環境變數優先於 .env。已有舊設定者，從各 Bot 原本的 .env 將 `DISCORD_TOKEN` 分別填入兩個新欄位，並確認兩個 Bot 使用同一個伺服器 ID。現有資料庫的搬移步驟見 [SQL API 文件](SQL_API_README.md#搬移既有資料庫)。
 

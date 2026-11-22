@@ -32,10 +32,18 @@ class BotEventTests(unittest.IsolatedAsyncioTestCase):
                 created_at=now,
             )
 
-        await self.client.on_message(message(1, 10, 100))
-        await self.client.on_message(message(2, 10, 200))
-        await self.client.on_message(message(3, 11, 100))
-        await self.client.on_message(message(4, None, 100))
+        with self.assertLogs(level="INFO") as logs:
+            await self.client.on_message(message(1, 10, 100))
+            await self.client.on_message(message(2, 10, 200))
+            await self.client.on_message(message(3, 11, 100))
+            await self.client.on_message(message(4, None, 100))
+        self.assertEqual(
+            [record.getMessage() for record in logs.records],
+            [
+                "New message [channel=100, author=7]: 'hello'",
+                "New message [channel=200, author=7]: 'hello'",
+            ],
+        )
         self.assertEqual(len(self.store.list_recent_messages(10, 100)), 1)
         self.assertEqual(len(self.store.list_recent_messages(10, 200)), 1)
 

@@ -58,34 +58,85 @@ with TemporaryDirectory() as directory:
 
 `SQLiteStore` 供可信任的後端流程保存或整理資料。使用者發起的 AI 查詢請走 `client.message_reader.recent_messages_for(member_id, channel_id)`。語音資料請使用 `client.transcript_reader`。兩者都查詢 Discord 當下的權限。AI 工具請從可信任的 Discord 請求取得 `member_id`，並在跨來源輸出前依聽眾再驗權。[AI 讀取說明](docs/ai_memory_api.md)
 
-## 方法名稱對照
+## 方法
 
-舊程式呼叫者請更新為右欄。方法參數與回傳格式沿用原有行為。
+以下整理 [`sqlite_api.py`](sqlite_api.py) 的公開介面。表中方法皆由 `store = SQLiteStore(path)` 建立的實例呼叫，路徑工具與建構方式見第一表。
 
-| 舊名 | 新名 |
+`guild_id`、`channel_id`、`message_id`、`author_id`、`speaker_id` 與 `started_by` 都使用 Discord 整數 ID。`channel_id` 也可傳討論串 ID。`session_id` 是語音錄音的字串 ID，`meeting_id` 是文字會議的字串 ID。時間欄位皆為 ISO 8601 UTC 字串，例如 `2026-11-22T03:00:00+00:00`。標示 `=` 的參數可省略，用方法簽名的預設值。
+
+### 路徑與初始化
+
+| 介面 | 參數 | 回傳與行為 |
+|---|---|---|
+| `DEFAULT_DB` | — | `Path`，指向根目錄下的 `data/messages.sqlite3`。 |
+| `resolve_database_path` | `configured_path: str \| None = None`，可傳 `BOT_DB` 的值 | `Path`。空白或 `None` 使用 `DEFAULT_DB`，相對路徑以專案根目錄為基準。 |
+| `SQLiteStore` | `path: str \| Path`，資料庫檔案路徑 | `SQLiteStore` 實例，會建立必要的父目錄並初始化資料表，保留既有紀錄。建立目錄失敗時可拋出 `OSError`。 |
+
+### 文字訊息
+
+| 方法 | 參數 | 回傳與行為 |
+|---|---|---|
+| `save_message` | `message_id: int`、`guild_id: int`、`channel_id: int`、`author_id: int`、`content: str`、`created_at: str`，選填關鍵字參數 `edited_at: str \| None = None` | `None`。新增即時訊息。重複送入且省略 `edited_at` 時保留既有版本。帶入 `edited_at` 時，可套用時間相同或更新的編輯。 |
+| `save_historical_message` | `message_id: int`、`guild_id: int`、`channel_id: int`、`author_id: int`、`content: str`、`created_at: str`、`edited_at: str \| None`（必填，未編輯傳 `None`） | `None`。在同一交易匯入文字並更新補匯進度。重複訊息保留既有資料，空文字只推進進度。 |
+| `update_message` | `message_id: int`、`guild_id: int`、`content: str`、`edited_at: str` | `bool`。找到指定訊息即回傳 `True`，包括收到較舊編輯而保留原版本的情況。找不到時回傳 `False`。 |
+| `list_recent_messages` | `guild_id: int`、`channel_id: int`、`limit: int = 100`（1–1000） | `list[sqlite3.Row]`。取指定頻道的非空文字，依建立時間和訊息 ID 由新到舊排序。欄位見[文字讀寫範例](#文字讀寫範例)。無資料時回傳 `[]`。 |
+| `get_last_backfilled_message_id` | `guild_id: int`、`channel_id: int` | `int \| None`。取得該頻道補匯已處理的最大訊息 ID。首次補匯前回傳 `None`。 |
+| `delete_message` | `message_id: int`、`guild_id: int` | `None`。刪除訊息並寫入刪除標記，避免即時事件或補匯重新寫入。 |
+| `delete_messages` | `message_ids: set[int]`、`guild_id: int` | `None`。在同一交易批次刪除並寫入標記。空集合直接結束。 |
+
+### 語音場次與逐字稿
+
+| 方法 | 參數 | 回傳與行為 |
+|---|---|---|
+| `create_voice_session` | `session_id: str`、`guild_id: int`、`channel_id: int`、`started_at: str`、`started_by: int \| None = None` | `None`。建立錄音場次。重複的 `session_id` 會拋出 `sqlite3.IntegrityError`。 |
+| `end_voice_session` | `session_id: str`、`ended_at: str` | `None`。設定場次結束時間。場次不存在時拋出 `SessionNotFound`。 |
+| `get_voice_session` | `session_id: str` | `VoiceSession`，包含來源頻道與起訖時間等欄位。場次不存在時拋出 `SessionNotFound`。 |
+| `list_recent_voice_sessions` | `guild_id: int`、`channel_id: int`、`limit: int = 20`（1–200） | `list[VoiceSession]`。取指定頻道場次，依開始時間由新到舊排序。無資料時回傳 `[]`。 |
+| `add_transcript_lines` | `session_id: str`、`lines: Iterable[NewLine]` | `int`，實際新增的行數。批次附加逐字稿，重複送入會再次新增。場次不存在時拋出 `SessionNotFound`。 |
+| `list_transcript_lines` | `session_id: str` | `list[TranscriptLine]`。按開始時間及行 ID 由小到大排序。沒有逐字稿或找不到場次時回傳 `[]`。 |
+| `count_transcript_lines` | `session_id: str` | `int`，逐字稿行數。沒有逐字稿或找不到場次時回傳 `0`。 |
+| `delete_speaker_transcript` | `session_id: str`、`speaker_id: int` | `None`。移除指定成員在該場次的逐字稿，並清除該場次的既有摘要。 |
+| `delete_voice_session` | `session_id: str` | `None`。刪除該場次、全部逐字稿與摘要。 |
+
+### 語音摘要與文字會議
+
+| 方法 | 參數 | 回傳與行為 |
+|---|---|---|
+| `save_session_summary` | `session_id: str`、`content: str`（純文字或 JSON 字串）、`model: str`、`prompt_version: str`、`created_at: str` | `None`。新增或取代語音摘要，並記下儲存當下的逐字稿行數。場次不存在時拋出 `SessionNotFound`。 |
+| `get_session_summary` | `session_id: str` | `SessionSummary \| None`。回傳語音摘要及產生資訊，`content` 保留為字串。沒有已存摘要時回傳 `None`。 |
+| `save_text_meeting` | `record: Mapping[str, Any]`，需提供下表列出的全部欄位 | `None`。以 `meeting_id` 新增或取代文字會議紀錄。缺少必填欄位會拋出 `KeyError`。 |
+| `get_text_meeting` | `meeting_id: str` | `dict \| None`。回傳完整紀錄，並解碼 `summary`、`source_message_ids`、`speakers`。`source_message_ids` 的鍵會轉回整數。查無紀錄時回傳 `None`。 |
+
+`save_text_meeting` 的 `record` 必填欄位如下。文字會議以摘要、時間範圍與引用保留整理結果。
+
+| 欄位 | 型別與用途 |
 |---|---|
-| `save_history_message` | `save_historical_message` |
-| `last_backfilled_message_id` | `get_last_backfilled_message_id` |
-| `recent_messages` | `list_recent_messages` |
-| `start_session` | `create_voice_session` |
-| `end_session` | `end_voice_session` |
-| `get_session` | `get_voice_session` |
-| `recent_sessions` | `list_recent_voice_sessions` |
-| `add_lines` | `add_transcript_lines` |
-| `lines` | `list_transcript_lines` |
-| `line_count` | `count_transcript_lines` |
-| `save_summary` | `save_session_summary` |
-| `summary` | `get_session_summary` |
-| `delete_speaker` | `delete_speaker_transcript` |
-| `delete_session` | `delete_voice_session` |
-| `TextMeetingStore(path).save(record)` | `save_text_meeting(record)` |
-| `TextMeetingStore(path).get(meeting_id)` | `get_text_meeting(meeting_id)` |
+| `meeting_id` | `str`，例如 `mtg-30-101`（格式為 `mtg-<channel_id>-<start_message_id>`）。 |
+| `guild_id`、`channel_id`、`started_by` | `int`，來源伺服器、頻道與開始會議的 Discord 使用者 ID。 |
+| `started_at`、`ended_at`、`created_at` | `str`，會議起訖與紀錄建立時間。 |
+| `start_message_id`、`end_message_id` | `int`，界定會議範圍的 Discord 訊息 ID。 |
+| `message_count` | `int`，納入摘要的訊息筆數。 |
+| `summary` | `dict` 或合法 JSON 字串，存放摘要、決定及候選待辦。 |
+| `source_message_ids` | `dict[int, int]`，摘要引用行號對應到 Discord 訊息 ID。 |
+| `speakers` | `dict[str, int]`，發言者代號（例如 `S1`）對應到 Discord 使用者 ID。 |
+| `model`、`prompt_version` | `str`，模型或摘要器名稱及提示詞版本。 |
 
-`save_message`、`update_message`、`delete_message`、`delete_messages`、`delete_channel`、`delete_guild` 可照原名使用。`delete_channel`、`delete_guild` 也會一起刪掉那個頻道或伺服器的文字會議紀錄（`text_meetings`），因為紀錄的摘要來自那些訊息。完整型別與操作行為見 [sqlite_api.py](sqlite_api.py)。
+### 跨資料刪除
 
-## 搬移既有資料庫
+| 方法 | 參數 | 回傳與行為 |
+|---|---|---|
+| `delete_channel` | `guild_id: int`、`channel_id: int` | `None`。在同一交易清除該頻道的文字訊息、歷史匯入進度、語音場次及其逐字稿與摘要、文字會議。伺服器級訊息刪除標記會保留。 |
+| `delete_guild` | `guild_id: int` | `None`。在同一交易清除整個伺服器的上述資料及訊息刪除標記。 |
 
-1. 先停止所有使用 SQLite 的 Bot、轉寫和摘要程式。從根目錄確認舊版文字 Bot 路徑 `discord_bot/data/messages.sqlite3` 存在，而且目的地 `data/` 尚未建立。若兩處已有資料，先保留兩份並確認要用的版本。
-2. 透過 SQLite 工具對舊檔執行 `PRAGMA wal_checkpoint(TRUNCATE);` 和 `PRAGMA quick_check;`。確認 checkpoint 的第一欄為 `0` 且 quick check 顯示 `ok`，記下各資料表筆數後關閉工具。
-3. 從根目錄搬移整個資料夾。PowerShell 使用 `Move-Item -LiteralPath ./discord_bot/data -Destination ./data`，macOS 使用 `mv ./discord_bot/data ./data`。確認根目錄 .env 的 `BOT_DB` 已留空，或已指向要使用的資料庫。
-4. 對新位置再做一次 `PRAGMA quick_check;`，確認各表筆數和搬移前相同，再啟動服務。
+AI demo 的 `demo_*` 追蹤資料由 [`ai_demo/tracking.py`](ai_demo/tracking.py) 管理。
+
+### 語音資料型別
+
+| 型別 | 欄位 |
+|---|---|
+| `VoiceSession` | `session_id: str`、`guild_id: int`、`channel_id: int`、`started_at: str`、`ended_at: str \| None`（尚未結束時為 `None`）、`started_by: int \| None`。 |
+| `NewLine` | `speaker_id: int`、`started_at: str`、`ended_at: str`、`text: str`（整理後文字）、`text_raw: str`（辨識原始結果）、`confidence: float`（0–1）、`flags: tuple[str, ...] = ()`（辨識警示）。 |
+| `TranscriptLine` | `line_id: int`（SQLite 產生的行 ID）、`session_id: str`、`speaker_id: int`、`started_at: str`、`ended_at: str`、`text: str`、`confidence: float`、`flags: tuple[str, ...]`。 |
+| `SessionSummary` | `session_id: str`、`content: str`、`model: str`、`prompt_version: str`、`source_line_count: int`（儲存摘要時的行數）、`created_at: str`。 |
+
+查詢筆數超出表列範圍時捕捉 `ValueError`，場次查找失敗可依各方法處理 `SessionNotFound`。開啟、鎖定或讀寫資料庫失敗時捕捉 `sqlite3.Error`。Discord 使用者能讀哪些資料，由[授權讀取介面](#discord-使用者的讀取權限)判斷。
