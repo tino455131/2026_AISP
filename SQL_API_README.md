@@ -1,6 +1,6 @@
 # SQLite API 使用指南
 
-`sqlite_api.py` 提供文字訊息、語音逐字稿與會議摘要共用的 `SQLiteStore`。預設資料庫位於根目錄的 `data/messages.sqlite3`。本機開發可以使用暫存資料庫測試，避免改到既有紀錄。
+`sqlite_api.py` 提供文字訊息、語音逐字稿、兩種會議與 AI 測試追蹤共用的 `SQLiteStore`。預設資料庫位於根目錄的 `data/messages.sqlite3`。本機開發可以使用暫存資料庫測試，避免改到既有紀錄。
 
 ## 安裝與路徑
 
@@ -38,7 +38,7 @@ with TemporaryDirectory() as directory:
         content="週五下午交第一版報告",
         edited_at="2026-11-22T03:05:00+00:00",
     )
-    rows = store.list_recent_messages(guild_id=20, channel_id=30, limit=20)
+    rows = store.get_channel_message_list(guild_id=20, channel_id=30, limit=20)
     assert rows[0]["content"] == "週五下午交第一版報告"
 ```
 
@@ -50,7 +50,7 @@ with TemporaryDirectory() as directory:
 | `content` | `str`，目前保存的文字。 |
 | `created_at`、`edited_at` | ISO 8601 UTC 字串。未編輯時 `edited_at` 為 `None`。 |
 
-`list_recent_messages` 回傳 `list[sqlite3.Row]`，可用欄位名稱索引。結果限定一個伺服器及頻道，排除空文字，依建立時間與訊息 ID 由新到舊排序。預設 100 筆，允許 1 至 1000，超出會拋出 `ValueError`。沒有符合資料時回傳空清單。
+`get_channel_message_list` 回傳 `list[sqlite3.Row]`，可用欄位名稱索引。結果限定一個伺服器及頻道，排除空文字，先選出最新的指定筆數，再依建立時間與訊息 ID 由舊到新排序。預設 100 筆，允許 1 至 1000，超出會拋出 `ValueError`。沒有符合資料時回傳空清單。
 
 寫入相同訊息可安全重試，重複資料保留第一次儲存的文字。修改請使用 `update_message`，找不到對應訊息時回傳 `False`。較舊的編輯不會覆蓋較新的版本。要匯入歷史訊息時，使用 `save_historical_message` 同步紀錄匯入進度。經 `delete_message` 或 `delete_messages` 刪除的訊息會留刪除標記，避免再次匯入。資料庫開啟、鎖定或讀寫失敗時，應處理 `sqlite3.Error`，勿將失敗當成沒有資料。語音方法遇到不存在的 session 時，依 docstring 回傳空結果或拋出 `SessionNotFound`。
 
@@ -70,7 +70,7 @@ with TemporaryDirectory() as directory:
 |---|---|---|
 | `DEFAULT_DB` | — | `Path`，指向根目錄下的 `data/messages.sqlite3`。 |
 | `resolve_database_path` | `configured_path: str \| None = None`，可傳 `BOT_DB` 的值 | `Path`。空白或 `None` 使用 `DEFAULT_DB`，相對路徑以專案根目錄為基準。 |
-| `SQLiteStore` | `path: str \| Path`，資料庫檔案路徑 | `SQLiteStore` 實例，會建立必要的父目錄並初始化資料表，保留既有紀錄。建立目錄失敗時可拋出 `OSError`。 |
+| `SQLiteStore` | `path: str \| Path`，資料庫檔案路徑。選填關鍵字參數 `read_only: bool = False` | `SQLiteStore` 實例。預設建立必要目錄和資料表。唯讀模式開啟既有資料庫，檔案缺少時拋出 `FileNotFoundError`。 |
 
 ### 文字訊息
 
@@ -79,7 +79,7 @@ with TemporaryDirectory() as directory:
 | `save_message` | `message_id: int`、`guild_id: int`、`channel_id: int`、`author_id: int`、`content: str`、`created_at: str`，選填關鍵字參數 `edited_at: str \| None = None` | `None`。新增即時訊息。重複送入且省略 `edited_at` 時保留既有版本。帶入 `edited_at` 時，可套用時間相同或更新的編輯。 |
 | `save_historical_message` | `message_id: int`、`guild_id: int`、`channel_id: int`、`author_id: int`、`content: str`、`created_at: str`、`edited_at: str \| None`（必填，未編輯傳 `None`） | `None`。在同一交易匯入文字並更新補匯進度。重複訊息保留既有資料，空文字只推進進度。 |
 | `update_message` | `message_id: int`、`guild_id: int`、`content: str`、`edited_at: str` | `bool`。找到指定訊息即回傳 `True`，包括收到較舊編輯而保留原版本的情況。找不到時回傳 `False`。 |
-| `list_recent_messages` | `guild_id: int`、`channel_id: int`、`limit: int = 100`（1–1000） | `list[sqlite3.Row]`。取指定頻道的非空文字，依建立時間和訊息 ID 由新到舊排序。欄位見[文字讀寫範例](#文字讀寫範例)。無資料時回傳 `[]`。 |
+| `get_channel_message_list` | `guild_id: int`、`channel_id: int`、`limit: int = 100`（1–1000） | `list[sqlite3.Row]`。取指定頻道最新的非空文字，依建立時間和訊息 ID 由舊到新排序。欄位見[文字讀寫範例](#文字讀寫範例)。無資料時回傳 `[]`。 |
 | `get_last_backfilled_message_id` | `guild_id: int`、`channel_id: int` | `int \| None`。取得該頻道補匯已處理的最大訊息 ID。首次補匯前回傳 `None`。 |
 | `delete_message` | `message_id: int`、`guild_id: int` | `None`。刪除訊息並寫入刪除標記，避免即時事件或補匯重新寫入。 |
 | `delete_messages` | `message_ids: set[int]`、`guild_id: int` | `None`。在同一交易批次刪除並寫入標記。空集合直接結束。 |
@@ -128,7 +128,20 @@ with TemporaryDirectory() as directory:
 | `delete_channel` | `guild_id: int`、`channel_id: int` | `None`。在同一交易清除該頻道的文字訊息、歷史匯入進度、語音場次及其逐字稿與摘要、文字會議。伺服器級訊息刪除標記會保留。 |
 | `delete_guild` | `guild_id: int` | `None`。在同一交易清除整個伺服器的上述資料及訊息刪除標記。 |
 
-AI demo 的 `demo_*` 追蹤資料由 [`ai_demo/tracking.py`](ai_demo/tracking.py) 管理。
+### AI demo 的會議查詢與進度追蹤
+
+| 方法 | 參數 | 回傳與行為 |
+|---|---|---|
+| `list_meeting_overviews` | — | `list[dict]`。兩種會議的基本資料、句數與摘要狀態，依開始時間由新到舊排序。 |
+| `get_voice_meeting_data` | `session_id: str` | 同一讀取交易中的 `(VoiceSession, list[TranscriptLine], SessionSummary 或 None)`。找不到場次時回傳 `None`。 |
+| `get_text_meeting_data` | `meeting_id: str`、`include_saved_messages: bool = False` | `(dict, list[sqlite3.Row])` 或 `None`。選用保存原文時只取同一伺服器、頻道及會議起訖 ID 之間的訊息。 |
+| `create_demo_tasks` | `confirmation: dict` | `list[dict]`。確認資料包含 `confirmation_id`、`meeting_id`、`guild_id`、`channel_id`、`created_by` 與 `tasks`。任務包含 `title`、`owner_user_id`、`due_at`，可帶 `description`、`collaborators`、`source_refs`、`activation_state`。相同確認重送會取回既有任務。 |
+| `record_demo_inquiry` | `task_id: str`、`owner_id: int`、`delivery_state: str`、`message_id: str` 或 `None` | `int`，新增的詢問 ID。已送達的詢問會等待回覆，其他送達結果直接結案。 |
+| `record_demo_progress` | `task_id: str`、`user_id: int`、`status: str` | `dict`，更新後的任務。只接受負責人回報，並在同一交易記錄進度及結束最近的待回覆詢問。無權或狀態無效時拋出 `TrackingError`。 |
+| `list_demo_tasks` | `guild_id: int` | `list[dict]`，該伺服器的任務，依建立時間由新到舊排列。 |
+| `list_demo_inquiries` | `task_id: str` | `list[dict]`，該任務的詢問、送達和回覆資料，依詢問 ID 排序。 |
+
+測試追蹤維持既有 `demo_*` 資料表和狀態。應用程式可用 `TrackingError.error_code` 判別找不到任務、角色限制或無效狀態。
 
 ### 語音資料型別
 

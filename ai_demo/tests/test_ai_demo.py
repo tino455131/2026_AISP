@@ -137,5 +137,13 @@ def test_bot_mode_prints_one_result_line_with_ids_as_strings(db, capsys, monkeyp
 
 def test_database_is_opened_read_only(db):
     with pytest.raises(sqlite3.OperationalError):
-        with db._connect() as connection:
-            connection.execute("DELETE FROM voice_lines")
+        db.store.delete_voice_session("rec-1")
+    assert db.meeting("rec-1").lines
+
+
+def test_empty_discord_history_uses_only_the_saved_summary(db):
+    SQLiteStore(db.db).save_message(5, 9, 10, LEADER, "只存在舊快取", "2026-11-21T06:01:00Z")
+    offline = db.meeting("mtg-10-1")
+    assert any(line.source_ref["kind"] == "message" for line in offline.lines)
+    current = db.meeting("mtg-10-1", [])
+    assert current.lines and all(line.source_ref["kind"] == "summary" for line in current.lines)

@@ -17,13 +17,12 @@ import os
 import sys
 from pathlib import Path
 
-from sqlite_api import resolve_database_path
+from sqlite_api import SQLiteStore, TrackingError, resolve_database_path
 
 from .ask import ask
 from .engine import get_engine
 from .local_data import DEFAULT_RECORDINGS, LocalData
 from .tasks import propose_tasks
-from .tracking import TrackingError, TrackingStore
 
 BANNER = "【測試用】ai_demo：直接讀本機資料庫、不檢查 Discord 權限，結果不要直接貼給別人。"
 MISSING = {
@@ -70,15 +69,15 @@ TRACKING = ("track", "inquiry", "progress", "tracked")
 
 
 def _tracking(args, payload: dict) -> dict:
-    store = TrackingStore(Path(args.db))
+    store = SQLiteStore(args.db)
     try:
         if args.command == "track":
-            return {"ok": True, "tasks": store.create_tasks(payload)}
+            return {"ok": True, "tasks": store.create_demo_tasks(payload)}
         if args.command == "inquiry":
-            return {"ok": True, "inquiry_id": store.record_inquiry(args.task, int(args.owner), args.delivery, args.message)}
+            return {"ok": True, "inquiry_id": store.record_demo_inquiry(args.task, int(args.owner), args.delivery, args.message)}
         if args.command == "progress":
-            return {"ok": True, "task": store.record_progress(args.task, int(args.user), args.status)}
-        return {"ok": True, "tasks": store.tasks(int(args.guild))}
+            return {"ok": True, "task": store.record_demo_progress(args.task, int(args.user), args.status)}
+        return {"ok": True, "tasks": store.list_demo_tasks(int(args.guild))}
     except TrackingError as exc:
         return {"ok": False, "error_code": exc.error_code, "message": str(exc)}
 

@@ -71,6 +71,15 @@ class ChannelAccess:
 
     async def can_read_history(self, member_id: int, channel_id: int) -> bool:
         """Check one person's current right to read stored channel history."""
+        return await self._member_can_read_history(member_id, channel_id, is_bot=False)
+
+    async def can_read_bot_history(self, channel_id: int) -> bool:
+        """Check the connected bot's own current right to read the source."""
+        if self.client.user is None:
+            raise AccessUnavailable("Could not confirm bot identity")
+        return await self._member_can_read_history(self.client.user.id, channel_id, is_bot=True)
+
+    async def _member_can_read_history(self, member_id: int, channel_id: int, *, is_bot: bool) -> bool:
         guild, channel, permission_channel = await self._resolve_channel(channel_id)
         try:
             member = await guild.fetch_member(member_id)
@@ -79,7 +88,7 @@ class ChannelAccess:
         except (discord.HTTPException, discord.ClientException) as exc:
             raise AccessUnavailable("Could not confirm guild membership") from exc
 
-        if member.bot:
+        if member.bot != is_bot:
             return False
         private_members = await self._private_thread_members(channel)
         try:
@@ -153,4 +162,4 @@ class AuthorizedMessageReader:
     ) -> list[sqlite3.Row]:
         if not await self.access.can_read_history(member_id, channel_id):
             raise AccessDenied("Member cannot read this channel's message history")
-        return await asyncio.to_thread(self.store.list_recent_messages, self.access.guild_id, channel_id, limit)
+        return await asyncio.to_thread(self.store.get_channel_message_list, self.access.guild_id, channel_id, limit)

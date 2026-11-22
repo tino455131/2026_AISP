@@ -88,7 +88,7 @@ export function accessTo(member, channel, threadMember) {
 }
 
 /** For a private thread, ask Discord whether this person is in it: true / false, or undefined when unsure. */
-async function threadMembership(channel, member) {
+export async function threadMembership(channel, member) {
   if (channel?.type !== ChannelType.PrivateThread || !member) return undefined;
   return channel.members.fetch({ member: member.id }).then(
     () => true,

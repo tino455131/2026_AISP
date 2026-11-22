@@ -1,6 +1,6 @@
 # 給 AI 組：語音和資料介面使用說明（F6）
 
-> 2026-11-21，Ping3227；2026-11-22 改成皓元整理後的資料夾結構（`text_bot/`、`voice_bot/voice_stt/`、共用的 `sqlite_api.py`、根目錄 `.env`）。程式在 GitHub 的 `ping-voice-tmp-merge` 分支，**還沒合併到 main**。
+> 這份指南以合併版 Team Bot 為入口。文字記錄在 `text_bot/`，語音轉寫在 `voice_bot/voice_stt/`，環境設定與 SQLite API 位於專案根目錄。
 > 標「🧪 測試」的是 AI 組正式版出來前的示範，照 `spec.md` v1.1 寫，正式版請 AI 組自己做。
 
 ## 一、有哪些東西可以用
@@ -9,18 +9,19 @@
 |---|---|---|---|
 | **合併版 bot** | Discord 裡只有一個 bot，語音錄音、所有指令、文字訊息記錄都是它（見第五節） | ✅ 可用 | `team_bot/` |
 | 文字訊息記錄 | 把文字頻道的訊息存進 `messages` 表，`AuthorizedMessageReader` 讀的就是這些 | ✅ 可用（用合併版啟動才有） | `team_bot/text_logger.py`（沿用 `text_bot/`） |
-| **共用資料庫介面** | 所有元件讀寫 SQLite 的同一個入口（皓元） | ✅ 可用 | `sqlite_api.py`，用法見 [SQL_API_README.md](../SQL_API_README.md) |
+| **共用資料庫介面** | 文字、語音、會議和測試追蹤共用的 SQLite 入口 | ✅ 可用 | `sqlite_api.py`，用法見 [SQL_API_README.md](../SQL_API_README.md) |
 | 語音錄音 → 逐字稿 → 摘要 | 有人進語音頻道就錄音；結束後轉成逐字稿，再做摘要 | ✅ 可用 | `voice_bot/`（語音辨識在 `voice_bot/voice_stt/`）、`meeting_ai/` |
 | **讀取介面** | AI 組的 tool 拿資料的入口，每次讀之前都會先確認權限 | ✅ 正式用 | `text_bot/transcript_reader.py`、`text_bot/channel_access.py` |
 | 摘要介面 | 換摘要器只要改一個名字（simple、claude-code、openai、自訂） | ✅ 可用 | `meeting_ai/interface.py` |
 | `/meeting` 文字會議 | 組長開始／結束，結束後在原頻道發布紀錄 | ✅ 基本版 | `voice_bot/src/meetings.js` |
 | `/ai` 指令和追蹤進度 | 在 Discord 裡整理任務、問問題、追蹤進度 | 🧪 測試 | `voice_bot/src/ai.js`、`ai_demo/` |
-| `ai_demo` | 在終端機跑同樣的 AI 功能，也是給 AI 組參考的示範 | 🧪 測試 | `ai_demo/` |
+| `/help`、`/ask` | 查看指令、私人 OpenAI 問答。需要目前頻道歷史才呼叫讀取工具 | ✅ 可用 | [工具開發指南](../meeting_ai/README.md#開發-ask-工具) |
+| `ai_demo` | 在終端機跑測試用的會議問答與任務流程 | 🧪 測試 | `ai_demo/` |
 | **假資料庫** | 用 `Demo_Script.md` 產生假的 bot 資料庫，讓你們在自己電腦上測 | 🧪 測試 | `demo_data/` |
 | 資料庫架構 | 每張表的欄位，以及每個功能讀寫哪些表 | 📄 文件 | [database_schema.md](database_schema.md) |
 
 ```
-你們的 tool ──▶ 讀取介面（先確認權限）──▶ SQLite
+你們的 tool ──▶ 讀取介面（先確認權限）──▶ sqlite_api.SQLiteStore ──▶ SQLite
                    │
                    ├─ 開發時：FakeAccess（查表）  ＋ demo_data 產生的假資料庫
                    └─ 正式時：ChannelAccess（問 Discord）＋ 主機上的真資料庫
@@ -81,7 +82,7 @@
 
 ### 4. 摘要
 
-- 現在用這台主機已登入的 Claude Code。要換成別的，見第五節的 `--summarizer`；AI 組要接自己的摘要器，見 [meeting_ai/README.md](../meeting_ai/README.md)。
+- 摘要器預設使用 `simple`。以 `MEETING_SUMMARIZER` 或 `--summarizer` 選用 OpenAI、Claude Code 或自訂實作，見 [meeting_ai/README.md](../meeting_ai/README.md)。
 - 格式：
 
   ```json
@@ -211,7 +212,7 @@ FakeAccess(unavailable=True)     # 假裝 Discord 無法確認 → AccessUnavail
 
 ### 4. 用 ai_demo 試 AI 功能
 
-`ai_demo` 是 spec 裡「會議 → 正式任務／提案」和「問會議問題」的示範。它在終端機**不檢查權限**，只能拿來測試。
+`ai_demo` 是 spec 裡「會議 → 正式任務／提案」和「問會議問題」的示範。它在終端機透過 `SQLiteStore(path, read_only=True)` 查詢會議。在本機以假資料測試，Discord 使用者的權限由 Bot 驗證。
 
 每個指令都要加 `--db demo_data/out/messages.sqlite3 --recordings demo_data/out/recordings`，下面用 `…` 代替：
 
@@ -281,7 +282,7 @@ Discord 裡只會看到**一個 bot**。它內部跑兩支程式，都讀根目�
 
 | 程式 | 負責 |
 |---|---|
-| `voice_bot/`（Node.js） | 語音錄音，以及**所有指令**（`/record`、`/meeting`、`/ai`、`/ping`） |
+| `voice_bot/`（Node.js） | 語音錄音，以及**所有指令**（用 `/help` 查看完整清單，包含 `/record`、`/meeting`、`/ai`、`/ask` 和 `/summary_this_channel`） |
 | `team_bot/text_logger.py`（Python，沿用 `text_bot/` 的程式） | 把文字訊息存進 `messages` 表，不註冊指令 |
 
 語音一定要用 Node.js 才收得到，文字 bot 原本是 Python，所以合併後內部還是兩支程式。
@@ -331,7 +332,6 @@ node team_bot/start.mjs --help
 | AC03、AC24 重送不重複 | 同一次確認重送，回傳同樣的任務 |
 | AC23 送出前再確認權限 | AI 跑完、送出答案前，再檢查一次權限（這次補上） |
 | AC26 私人討論串 | 要是討論串成員，或有「管理討論串」權限（這次補上） |
-| 一般聊天不長期完整保存 | 文字會議只存摘要和訊息 ID；`/ai` 需要原文時當場向 Discord 讀 |
 | ContextIsolationPolicy | 每次呼叫 AI 都是全新的，只放一場會議的內容，不留對話紀錄 |
 | 命名規則 | 欄位和狀態用英文 snake_case，ErrorCode 用 UPPER_SNAKE_CASE；時間存 UTC RFC 3339 |
 
@@ -349,6 +349,8 @@ node team_bot/start.mjs --help
 另外修了兩個 bug：ai_demo 讀資料庫後沒有關閉連線，Windows 上會鎖住檔案；在終端機讀文字會議時，@ 的人沒有換成代號，導致負責人認不出來。
 
 ### ⚠️ 和 spec 不一樣，要團隊決定
+
+文字記錄程序目前會匯入與保存一般聊天。文字會議紀錄本身保存摘要、範圍和引用，`/ai` 向 Discord 讀取會議原文。
 
 | 項目 | spec | 現在 |
 |---|---|---|

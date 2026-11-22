@@ -2,8 +2,8 @@
 
 全部存在同一個 SQLite 檔：`data/messages.sqlite3`（可以用根目錄 `.env` 的 `BOT_DB` 改）。這個檔案在 `.gitignore` 裡，不會上傳。
 
-- 文字訊息、語音、文字會議的表都由 [sqlite_api.py](../sqlite_api.py) 建立和讀寫（用法見 [SQL_API_README.md](../SQL_API_README.md)）。刪除頻道或伺服器時，這些表裡那個頻道的資料會一起刪掉。
-- 例外：`demo_` 開頭的三張表是測試用的追蹤進度，由 `ai_demo/tracking.py` 管，之後會被 AI 組的正式任務表取代，所以不放進共用介面。`ai_demo` 在終端機直接唯讀查表，也只是測試捷徑。
+- [sqlite_api.py](../sqlite_api.py) 的 `SQLiteStore` 統一管理資料庫連線、建表、查詢與寫入，包含文字訊息、語音及文字會議，還有測試用的 `demo_*` 追蹤資料。方法簽名見 [SQL_API_README.md](../SQL_API_README.md)。
+- `ai_demo` 使用 `SQLiteStore(path, read_only=True)` 查詢會議資料，進度確認、詢問與回報則呼叫同一介面的寫入方法。Discord 使用者的資料讀取依來源權限處理，見 [AI 讀取介面](ai_memory_api.md)。
 
 - 時間一律是 UTC 的 RFC 3339 字串。
 - Discord ID 存成 INTEGER。傳給 JavaScript 時要轉成字串，因為 JavaScript 的數字裝不下這麼長的 ID。
@@ -16,7 +16,7 @@
 | 語音 | `voice_sessions`、`voice_lines`、`voice_session_summaries` | voice_stt（逐字稿）、meeting_ai（摘要） | 第一次錄完音 |
 | 文字訊息 | `messages`、`backfill_state`、`deleted_messages` | 文字記錄（`text_bot/bot.py` 或 `team_bot/text_logger.py`） | 文字記錄第一次啟動 |
 | 文字會議 | `text_meetings` | `/meeting end`（meeting_ai） | 第一次結束文字會議 |
-| 追蹤進度（測試） | `demo_tasks`、`demo_inquiries`、`demo_progress_updates` | `/ai tasks` 的「追蹤」按鈕（ai_demo） | 第一次確認追蹤 |
+| 追蹤進度（測試） | `demo_tasks`、`demo_inquiries`、`demo_progress_updates` | `/ai tasks` 的「追蹤」按鈕（ai_demo） | 初始化 SQLiteStore |
 
 表都是程式第一次用到時才建立的。2026-11-21 時，資料庫裡只有語音的三張表：6 場錄音、115 句、6 份摘要。
 
@@ -145,6 +145,8 @@ erDiagram
 | `/meeting end` | 直接向 Discord 讀這段訊息 | `text_meetings` |
 | `/ai` 選會議（打字搜尋） | `voice_sessions`（含句數、有沒有摘要）、`text_meetings`；bot 再過濾掉你看不到的頻道 | — |
 | `/ai tasks`、`/ai ask`（語音） | `voice_sessions`、`voice_lines`（照時間排序，重新編號成第 1、2、3… 句）、`voice_session_summaries`；名字從錄音資料夾的 `manifest.json` 讀 | — |
-| `/ai tasks`、`/ai ask`（文字會議） | `text_meetings` 拿範圍；原文由 bot 當場向 Discord 讀，不存進資料庫 | — |
+| `/ai tasks`、`/ai ask`（文字會議） | `text_meetings` 提供範圍與摘要，原文由 Bot 向 Discord 讀取。Discord 回傳空清單時使用已保存摘要 | — |
+| `/summary_this_channel`、含頻道歷史的 `/ask` | 驗權後從 `messages` 取得目前頻道最多 100 則文字 | — |
+| 一般 `/ask` | 只使用問題本身 | — |
 | 「追蹤」按鈕、負責人回報 | `demo_tasks` | `demo_tasks`、`demo_inquiries`、`demo_progress_updates` |
 | 文字記錄 | — | `messages`、`backfill_state`、`deleted_messages` |

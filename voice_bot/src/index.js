@@ -4,6 +4,9 @@ import { ApplicationFlagsBitField, Client, Events, GatewayIntentBits, SlashComma
 import { RecordController, recordCommand } from './commands.js';
 import { MeetingController, meetingCommand } from './meetings.js';
 import { AiController, aiCommand } from './ai.js';
+import { channelSummaryCommand, summarizeCurrentChannel } from './channel_summary.js';
+import { askCurrentChannel, channelAskCommand } from './channel_ask.js';
+import { helpCommand, showHelp } from './help.js';
 import { USAGE, argsToEnv, loadConfig, loadRootEnv } from './config.js';
 
 loadRootEnv();
@@ -34,17 +37,19 @@ const meetings = new MeetingController(client, config);
 const ai = new AiController(client, config);
 // Same command as the text bot's /ping, so the merged bot (team_bot) keeps it.
 const pingCommand = new SlashCommandBuilder().setName('ping').setDescription('確認 bot 在線上');
+const commands = [recordCommand, meetingCommand, aiCommand, channelSummaryCommand, channelAskCommand, pingCommand, helpCommand]
+  .map((command) => command.toJSON());
 
 client.once(Events.ClientReady, async (ready) => {
   const guild = await ready.guilds.fetch(config.guildId);
   // This process is the only one that registers commands (the merged text logger registers none).
-  await guild.commands.set([recordCommand.toJSON(), meetingCommand.toJSON(), aiCommand.toJSON(), pingCommand.toJSON()]);
+  await guild.commands.set(commands);
   await meetings.load();
-  console.log(`語音錄音 bot 已上線：${ready.user.tag}，服務伺服器 ${guild.name}（/record、/meeting、/ai、/ping 指令已註冊）`);
+  console.log(`語音錄音 bot 已上線：${ready.user.tag}，服務伺服器 ${guild.name}（${commands.map(({ name }) => `/${name}`).join('、')} 指令已註冊）`);
   const app = await ready.application.fetch();
   const content = ApplicationFlagsBitField.Flags;
   if (!app.flags.any(content.GatewayMessageContent | content.GatewayMessageContentLimited)) {
-    console.warn('提醒：Developer Portal 還沒開 Message Content Intent，/meeting 讀不到訊息內容（見 team_bot/README.md）');
+    console.warn('提醒：Developer Portal 還沒開 Message Content Intent，文字記錄與 /meeting 會受影響（見 team_bot/README.md）');
   }
   console.log(`摘要器：${config.summarizer}；語音辨識：${config.sttEngine}`);
   if (config.autoRecord) {
@@ -67,6 +72,9 @@ client.on(Events.InteractionCreate, (interaction) => {
   const handlers = {
     meeting: () => meetings.handle(interaction),
     ai: () => ai.handle(interaction),
+    ask: () => askCurrentChannel(interaction, config),
+    help: () => showHelp(interaction, commands),
+    summary_this_channel: () => summarizeCurrentChannel(interaction, config),
     ping: () => interaction.reply('Pong! 🏓'),
   };
   const aiButton = interaction.isButton() && /^(track|progress):/.test(interaction.customId);

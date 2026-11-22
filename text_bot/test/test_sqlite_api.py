@@ -46,7 +46,7 @@ class SQLiteAPITests(unittest.TestCase):
         store.save_session_summary("s1", "進度摘要", "test", "v1", CREATED)
 
         reopened = SQLiteStore(self.path)
-        self.assertEqual(reopened.list_recent_messages(10, 101)[0]["content"], "進度已完成")
+        self.assertEqual(reopened.get_channel_message_list(10, 101)[0]["content"], "進度已完成")
         self.assertEqual(reopened.list_transcript_lines("s1")[0].text, "會議中確認進度")
         self.assertEqual(reopened.get_session_summary("s1").content, "進度摘要")
         with closing(sqlite3.connect(self.path)) as connection:
@@ -100,7 +100,7 @@ class SQLiteAPITests(unittest.TestCase):
             )
 
         store = SQLiteStore(self.path)
-        self.assertEqual(store.list_recent_messages(10, 101)[0]["content"], "舊訊息")
+        self.assertEqual(store.get_channel_message_list(10, 101)[0]["content"], "舊訊息")
         self.assertEqual(store.list_transcript_lines("old")[0].text, "舊逐字稿")
         self.assertEqual(store.get_session_summary("old").content, "舊摘要")
 
@@ -120,21 +120,21 @@ class SQLiteAPITests(unittest.TestCase):
         store.delete_channel(10, 301)
         self.assertIsNone(store.get_text_meeting("mtg-target"))  # a summary of that channel goes with it
         self.assertIsNotNone(store.get_text_meeting("mtg-same-guild"))
-        self.assertEqual(store.list_recent_messages(10, 301), [])
+        self.assertEqual(store.get_channel_message_list(10, 301), [])
         self.assertIsNone(store.get_last_backfilled_message_id(10, 301))
         self.assertEqual(store.list_transcript_lines("target"), [])
         self.assertIsNone(store.get_session_summary("target"))
-        self.assertEqual(len(store.list_recent_messages(10, 302)), 1)
+        self.assertEqual(len(store.get_channel_message_list(10, 302)), 1)
         self.assertEqual(len(store.list_transcript_lines("same-guild")), 1)
-        self.assertEqual(len(store.list_recent_messages(11, 301)), 1)
+        self.assertEqual(len(store.get_channel_message_list(11, 301)), 1)
 
         store.delete_guild(10)
-        self.assertEqual(store.list_recent_messages(10, 302), [])
+        self.assertEqual(store.get_channel_message_list(10, 302), [])
         self.assertEqual(store.list_transcript_lines("same-guild"), [])
         self.assertIsNone(store.get_session_summary("same-guild"))
         self.assertIsNone(store.get_text_meeting("mtg-same-guild"))
         self.assertIsNotNone(store.get_text_meeting("mtg-other-guild"))
-        self.assertEqual(len(store.list_recent_messages(11, 301)), 1)
+        self.assertEqual(len(store.get_channel_message_list(11, 301)), 1)
         self.assertEqual(len(store.list_transcript_lines("other-guild")), 1)
 
 

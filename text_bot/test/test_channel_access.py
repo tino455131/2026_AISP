@@ -127,6 +127,15 @@ class ChannelAccessTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(AccessDenied):
             await self.reader.recent_messages_for(2, 201)
 
+        self.access.client.user = SimpleNamespace(id=4)
+        self.channel_permissions[101][4] = permissions(view=True)
+        self.assertFalse(await self.access.can_read_bot_history(201))
+        thread.fetch_members.return_value.append(SimpleNamespace(id=4))
+        self.assertTrue(await self.access.can_read_bot_history(201))
+        self.assertFalse(await self.access.can_read_history(4, 201))
+        self.channel_permissions[101][4] = permissions(view=True, history=False)
+        self.assertFalse(await self.access.can_read_bot_history(201))
+
         thread.fetch_members.side_effect = discord.ClientException("membership unavailable")
         with self.assertRaises(AccessUnavailable):
             await self.access.visible_members(201)

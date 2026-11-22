@@ -24,9 +24,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import discord
 from dotenv import load_dotenv
 from typing import Awaitable, Callable
 
+from .discord_session import DiscordNotReady, ready_discord_client
 from .interface import MeetingSummary, render_markdown
 from sqlite_api import PROJECT_ROOT, SessionNotFound, SQLiteStore, TranscriptLine, resolve_database_path
 
@@ -108,20 +110,8 @@ def _token() -> str:
 
 
 async def run(session_id: str, member_id: int, guild_id: int, what: str, db: Path) -> dict:
-    import discord
-
-    intents = discord.Intents.none()
-    intents.guilds = True  # enough for roles and channel permissions; members are fetched one by one
-    async with discord.Client(intents=intents) as client:
-        await client.login(_token())
-        connection = asyncio.create_task(client.connect(reconnect=False))
-        ready = asyncio.create_task(client.wait_until_ready())
-        try:
-            await asyncio.wait({connection, ready}, timeout=30, return_when=asyncio.FIRST_COMPLETED)
-            if not ready.done():
-                if connection.done():
-                    connection.result()  # raise why the connection failed
-                return refused("PERMISSION_UNVERIFIED")  # Discord never became ready
+    try:
+        async with ready_discord_client(_token()) as client:
 
             async def names_of(ids: list[int]) -> dict[int, str]:
                 guild = client.get_guild(guild_id)
@@ -135,10 +125,8 @@ async def run(session_id: str, member_id: int, guild_id: int, what: str, db: Pat
 
             reader = AuthorizedTranscriptReader(ChannelAccess(client, guild_id), SQLiteStore(db))
             return await read_for_member(reader, member_id, session_id, what, names_of)
-        finally:
-            ready.cancel()
-            await client.close()
-            await asyncio.gather(connection, return_exceptions=True)
+    except DiscordNotReady:
+        return refused("PERMISSION_UNVERIFIED")
 
 
 def main(argv: list[str] | None = None) -> int:

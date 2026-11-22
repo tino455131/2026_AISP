@@ -146,7 +146,7 @@
             <rect x="430" y="176" width="263" height="132" rx="16" fill="#f2ebff" stroke="#7c3aed" stroke-width="2"/>
             <text class="box-title" x="451" y="216">SQL</text>
             <text class="box-sub" x="451" y="245">data/messages.sqlite3</text>
-            <text class="box-sub" x="451" y="271">聊天、兩種會議、摘要與追蹤</text>
+            <text class="box-sub" x="451" y="271">SQLiteStore · 聊天、會議與追蹤</text>
             <rect x="818" y="176" width="262" height="146" rx="16" fill="#fff2e9" stroke="#c15a16" stroke-width="2"/>
             <text class="box-title" x="838" y="216">AI</text>
             <text class="box-sub" x="838" y="245">meeting_ai：語音與文字摘要</text>
@@ -159,12 +159,12 @@
 
       <section class="panel system sql" id="sql" aria-labelledby="sql-title">
         <h2 id="sql-title">SQL｜共用資料庫</h2>
-        <p class="section-intro">根目錄的 <a href="../sqlite_api.py"><code>sqlite_api.py</code></a> 提供共用的 <code>SQLiteStore</code>，管理文字訊息、逐字稿與會議摘要。預設資料庫是 <code>data/messages.sqlite3</code>，可用 <code>BOT_DB</code> 指向其他位置。</p>
+        <p class="section-intro">根目錄的 <a href="../sqlite_api.py"><code>sqlite_api.py</code></a> 提供共用的 <code>SQLiteStore</code>，集中處理所有元件的 SQLite 連線、建表和讀寫，包含 AI demo 的會議查詢與進度追蹤。預設資料庫是 <code>data/messages.sqlite3</code>，可用 <code>BOT_DB</code> 指向其他位置。</p>
         <dl class="layers">
           <div><dt>聊天</dt><dd><code>messages</code>、<code>backfill_state</code>、<code>deleted_messages</code> 記錄文字和匯入進度。</dd></div>
           <div><dt>語音會議</dt><dd><code>voice_sessions</code>、<code>voice_lines</code>、<code>voice_session_summaries</code> 保存錄音資訊、逐字稿與摘要。</dd></div>
           <div><dt>文字會議</dt><dd><code>text_meetings</code> 保存起訖訊息 ID、摘要和引用。獨立的文字記錄程序會將一般聊天寫入 <code>messages</code>。</dd></div>
-          <div><dt>測試追蹤</dt><dd><code>demo_tasks</code>、<code>demo_inquiries</code>、<code>demo_progress_updates</code> 保存確認、送達與進度狀態。<code>ai_demo</code> 的 <a href="../ai_demo/local_data.py"><code>local_data.py</code></a> 和 <a href="../ai_demo/tracking.py"><code>tracking.py</code></a> 直接存取同一資料庫，分別負責讀取會議資料和讀寫追蹤狀態。</dd></div>
+          <div><dt>測試追蹤</dt><dd><code>demo_tasks</code>、<code>demo_inquiries</code>、<code>demo_progress_updates</code> 保存確認、送達與進度狀態。<code>ai_demo</code> 透過 <code>SQLiteStore</code> 新增任務、記錄詢問與回報進度。</dd></div>
         </dl>
         <p class="note">面向使用者的查詢應在應用層確認來源與受眾權限。底層 SQLite 讀取不具備 Discord 授權功能。合併版的文字記錄目前會保存一般聊天，<code>spec.md</code> 所述的保存限制仍待落實。</p>
         <p><a href="database_schema.md">資料表結構</a> · <a href="../SQL_API_README.md">SQL API 使用方式</a></p>
@@ -202,9 +202,10 @@
         <p class="section-intro"><code>meeting_ai</code> 處理兩種會議的摘要。預設 <code>simple</code>，可切換 OpenAI、Claude Code 或自訂實作。<a href="../meeting_ai/README.md">摘要器設定</a></p>
         <ol class="flow">
           <li><strong>選擇一場會議</strong><small>/ai tasks 或 /ai ask 會先檢查來源頻道的存取權。文字會議向 Discord 讀原文，語音會議讀逐字稿。</small><a class="file" href="../voice_bot/src/ai.js">ai.js</a></li>
-          <li><strong>私下回覆</strong><small><code>ask.py</code> 產生回答，<code>tasks.py</code> 產生任務候選。送出前再檢查存取權限。當 Discord 原文為空時，資料讀取目前仍可能回退到聊天快取。</small><a class="file" href="../ai_demo/ask.py">ask.py</a> <a class="file" href="../ai_demo/tasks.py">tasks.py</a> <a class="file" href="../ai_demo/local_data.py">local_data.py</a></li>
-          <li class="destination"><strong>測試版進度追蹤</strong><small>組長確認後，符合來源權限的負責人收到一輪私訊。按鈕回報會保存狀態，再私訊有來源權限的組長。</small><a class="file" href="../ai_demo/tracking.py">tracking.py</a></li>
+          <li><strong>私下回覆</strong><small><code>ask.py</code> 產生回答，<code>tasks.py</code> 產生任務候選。送出前再檢查存取權限。Discord 回傳空原文時，使用已保存的會議摘要。</small><a class="file" href="../ai_demo/ask.py">ask.py</a> <a class="file" href="../ai_demo/tasks.py">tasks.py</a> <a class="file" href="../ai_demo/local_data.py">local_data.py</a></li>
+          <li class="destination"><strong>測試版進度追蹤</strong><small>組長確認後，符合來源權限的負責人收到一輪私訊。按鈕回報會保存狀態，再私訊有來源權限的組長。</small><a class="file" href="../sqlite_api.py">sqlite_api.py</a></li>
         </ol>
+        <p><code>/ask</code> 一般問題直接交由 OpenAI 回答。需要目前頻道歷史時，<code>get_current_channel_history</code> 透過授權 reader 呼叫 <code>SQLiteStore</code>，回覆只給提問者。<a href="../meeting_ai/tools.py">工具定義</a></p>
         <p class="note"><code>/ai tracked</code> 已實作。它目前用來源頻道權限過濾結果，回報私訊的受眾仍需額外限制。測試追蹤目前只發一次詢問。<a href="ai_team_guide.md">AI 團隊接手說明</a></p>
       </section>
 
@@ -216,7 +217,6 @@
           <div><dt>私訊進度的可見範圍過大</dt><dd><code>/ai tracked</code> 會對所有能讀來源頻道的成員顯示負責人回報的狀態。規格指定回報只分享給本人與有來源權限的組長。</dd></div>
           <div><dt>通知發送失敗時仍可錄音</dt><dd>Direct 模式會先將成員納入錄音。若 Bot 缺少發訊息權限，程式會繼續錄音，成員可能收不到通知或「不要錄我」按鈕。</dd></div>
           <div><dt>確認追蹤時少了一道來源權限檢查</dt><dd>組長取得預覽後若失去來源頻道權限，仍可能用原本的按鈕建立追蹤。確認時應重新驗證組長的來源權限。</dd></div>
-          <div><dt>空的 Discord 歷史會回退到舊紀錄</dt><dd>文字會議原文是空清單時，<code>ai_demo</code> 會將它當成未提供原文，可能讀回 Bot 離線期間已自 Discord 移除的舊文字。</dd></div>
           <div><dt>摘要失敗後沒有原會議的重試入口</dt><dd><code>/meeting end</code> 會先移除進行中的會議。之後若讀 Discord 或呼叫模型失敗，再下結束指令找不到原會議。</dd></div>
           <div><dt>Windows Git Bash 安裝入口缺少</dt><dd>README 仍列出 <code>bash SETUP_Windows</code>，合併後沒有該檔案。Windows 可用 <code>.\SETUP_Windows.ps1</code>。</dd></div>
         </dl>

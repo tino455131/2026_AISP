@@ -5,8 +5,7 @@
 
 ## 1. 三條規則
 
-1. **面向使用者時只能透過 reader 讀資料**，不要直接查 SQLite 或呼叫根目錄 `sqlite_api.SQLiteStore` 的底層讀取方法。系統內部轉寫與摘要處理可用 `SQLiteStore` 寫入及整理資料。
-   reader 每次都會當下問 Discord「這個人現在看得到這個頻道嗎」，這是私人頻道不外洩的唯一保證。
+1. **開發者的 SQL 操作都透過 `sqlite_api.SQLiteStore`**。接收 Discord 使用者請求時，優先使用 `AuthorizedMessageReader` 或 `AuthorizedTranscriptReader`，由 reader 確認當下來源權限後呼叫儲存介面。系統內部轉寫、摘要與追蹤可使用 `SQLiteStore`。
 2. **每次讀取都要帶「替誰讀」的 `member_id`**（通常是下指令或私訊 bot 的人）。
 3. **輸出前再檢查一次聽眾**：答案會貼到哪裡、誰會看到，就只能用「那些人全部都有權看」的資料（見第 5 節）。
 
@@ -25,7 +24,8 @@
 messages = await client.message_reader.recent_messages_for(member_id, channel_id, limit=100)
 ```
 
-回傳 `sqlite3.Row` 清單（新到舊）：
+回傳 `sqlite3.Row` 清單。先取最近指定筆數，再按時間由舊到新排列。`/ask` 的 `get_current_channel_history` 就使用此 reader，來源與提問者由 Discord interaction 決定。工具範例見 [meeting_ai/README.md](../meeting_ai/README.md#開發-ask-工具)。
+
 
 | 欄位 | 說明 |
 |---|---|

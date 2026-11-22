@@ -62,7 +62,7 @@ class MeetingSummarizer(Protocol):
 - 每個決定、每項待辦都要附 `source_line_ids`，對應 Spec「任務草案要有來源依據」。
   不存在的行號會被 `MeetingSummary.from_dict(valid_ids=...)` 自動濾掉。
 - `uncertain=True` 的句子可能聽錯，不要單憑它就產生決定或待辦。
-- 摘要不主動貼出來，只存進資料庫；要讀一律透過 `AuthorizedTranscriptReader`，誰能讀和逐字稿一樣。要貼到頻道或私訊時，要先做聽眾檢查（見 [docs/ai_memory_api.md](../docs/ai_memory_api.md) 第 5 節）。
+- 語音摘要存進資料庫，透過 `AuthorizedTranscriptReader` 授權查看。文字會議的 `/meeting end` 會將紀錄貼回來源頻道。自訂輸出仍需根據實際讀者檢查來源權限（見 [docs/ai_memory_api.md](../docs/ai_memory_api.md) 第 5 節）。
 
 ## 讀取的範例：`show_session.py`
 
@@ -91,6 +91,43 @@ text_bot/.venv/Scripts/python.exe -m meeting_ai.show_session <session_id> --memb
 | `NOT_FOUND` | 找不到這場錄音，或這場還沒有摘要（`message` 會說是哪一種） |
 
 `message` 是給使用者看的繁體中文，不會透露對方看不到的頻道或內容。
+
+
+## 開發 /ask 工具
+
+`/ask` 的一次問答由 `ask_channel.py` 處理。一般問題在第一次 OpenAI 請求直接得到回答。若問題需要目前頻道的紀錄，程式會要求模型先呼叫 `get_current_channel_history`。這個工具會驗證 Bot 和提問者的權限，透過 `AuthorizedMessageReader` 讀取 SQLite，再把結果交給 OpenAI。回覆前會重新驗權。
+
+在 [tools.py](tools.py) 新增參數型別、非同步函式及 `TOOLS` 登記項目。例如可新增一個工具，計算最近訊息中含有某個關鍵字的則數：
+
+```python
+class CountMentionsArgs(ToolArguments):
+    keyword: str
+
+
+async def count_mentions(context: ToolContext, args: CountMentionsArgs) -> dict:
+    rows = await context.read_history()
+    keyword = args.keyword.strip().casefold()
+    count = sum(keyword in row["content"].casefold() for row in rows) if keyword else 0
+    return {"count": count}
+```
+
+在同一檔案的 `TOOLS` 字典加上這一項：
+
+```python
+"count_mentions": Tool(
+    "計算目前 Discord 頻道最近紀錄中包含關鍵字的訊息則數。",
+    CountMentionsArgs,
+    count_mentions,
+),
+```
+
+參數型別會產生 function tool 的 JSON Schema。欄位請明確宣告為必填，需要可空值時可用 `str | None`。`ToolArguments` 會拒絕未宣告的參數和不符型別的輸入。身分和來源由後端的 `ToolContext` 固定，`context.read_history()` 會使用授權 reader。處理函式回傳可 JSON 序列化的字典，供模型產生答案。新登記的工具可在完成首次歷史查詢後由模型選用。
+
+從專案根目錄執行下列測試。它使用暫存 SQLite、模擬 Discord 權限與假 OpenAI client。
+
+```powershell
+.\text_bot\.venv\Scripts\python.exe -m unittest meeting_ai.tests.test_ask_channel
+```
 
 ## 測試
 

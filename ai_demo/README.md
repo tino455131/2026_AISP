@@ -5,7 +5,7 @@
 這是一個獨立的單元：讀 bot 的 SQLite（語音錄音和文字會議都可以），用 AI 做 spec 裡會議之後的事。AI 預設用這台電腦已登入的 Claude Code，和摘要一樣。
 
 ```
-SQLite（唯讀）──▶ local_data.py ──▶ tasks.py：整理正式任務／待確認提案
+SQLite ──▶ SQLiteStore（唯讀）──▶ local_data.py ──▶ tasks.py：整理正式任務／待確認提案
                                  └▶ ask.py：問這場會議的問題
                       AI 來源：engine.py（claude-code／claude／openai／自訂）
 ```

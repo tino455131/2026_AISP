@@ -19,6 +19,7 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
 
@@ -144,17 +145,23 @@ class SQLiteStore:
         content to a user. This class only manages persistence.
     """
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, read_only: bool = False) -> None:
         """Open or initialize the shared database without changing existing rows.
 
         Args:
             path: SQLite file path shared by the text bot and voice pipeline.
+            read_only: Open an existing database without initializing its schema.
 
         Raises:
             OSError: The parent directory could not be created.
             sqlite3.Error: SQLite could not open or initialize the database.
         """
         self.path = Path(path)
+        self.read_only = read_only
+        if read_only:
+            if not self.path.is_file():
+                raise FileNotFoundError(self.path)
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connection() as connection:
             connection.execute("PRAGMA journal_mode=WAL")
@@ -255,9 +262,12 @@ class SQLiteStore:
                 "ON text_meetings (guild_id, channel_id, started_at)"
             )
 
+            connection.executescript(_DEMO_TRACKING_SCHEMA)
+
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self.path, timeout=30)
+        target = f"{self.path.resolve().as_uri()}?mode=ro" if self.read_only else self.path
+        connection = sqlite3.connect(target, timeout=30, uri=self.read_only)
         try:
             with connection:
                 yield connection
@@ -441,8 +451,8 @@ class SQLiteStore:
                 ((message_id, guild_id) for message_id in message_ids),
             )
 
-    def list_recent_messages(self, guild_id: int, channel_id: int, limit: int = 100) -> list[sqlite3.Row]:
-        """Read saved nonempty messages from one server and channel.
+    def get_channel_message_list(self, guild_id: int, channel_id: int, limit: int = 100) -> list[sqlite3.Row]:
+        """Read the latest saved nonempty messages in chronological order.
 
         Args:
             guild_id: Discord server ID.
@@ -450,7 +460,7 @@ class SQLiteStore:
             limit: Maximum number of rows, from 1 to 1000.
 
         Returns:
-            SQLite rows, newest first by creation time then message ID.
+            The latest matching SQLite rows, oldest first by creation time then message ID.
 
         Raises:
             ValueError: limit is outside the allowed range.
@@ -461,9 +471,11 @@ class SQLiteStore:
         with self._connection() as connection:
             connection.row_factory = sqlite3.Row
             return connection.execute(
+                "SELECT * FROM ("
                 "SELECT message_id, guild_id, channel_id, author_id, content, created_at, edited_at "
                 "FROM messages WHERE guild_id = ? AND channel_id = ? AND content <> '' "
-                "ORDER BY created_at DESC, message_id DESC LIMIT ?",
+                "ORDER BY created_at DESC, message_id DESC LIMIT ?"
+                ") ORDER BY created_at ASC, message_id ASC",
                 (guild_id, channel_id, limit),
             ).fetchall()
 
@@ -687,7 +699,11 @@ class SQLiteStore:
         """
         with self._connection() as connection:
             connection.row_factory = sqlite3.Row
-            row = connection.execute("SELECT * FROM text_meetings WHERE meeting_id = ?", (meeting_id,)).fetchone()
+            return self._text_meeting_row(connection, meeting_id)
+
+    @staticmethod
+    def _text_meeting_row(connection: sqlite3.Connection, meeting_id: str) -> dict | None:
+        row = connection.execute("SELECT * FROM text_meetings WHERE meeting_id = ?", (meeting_id,)).fetchone()
         if row is None:
             return None
         out = dict(row)
@@ -695,6 +711,70 @@ class SQLiteStore:
         out["source_message_ids"] = {int(k): v for k, v in json.loads(out["source_message_ids"]).items()}
         out["speakers"] = json.loads(out["speakers"])
         return out
+
+    def list_meeting_overviews(self) -> list[dict]:
+        """List stored voice and text meeting metadata, newest start time first."""
+        meetings = []
+        with self._connection() as connection:
+            connection.execute("BEGIN")
+            connection.row_factory = sqlite3.Row
+            tables = self._table_names(connection)
+            if "voice_sessions" in tables:
+                rows = connection.execute(
+                    """SELECT s.session_id AS meeting_id, s.channel_id, s.started_at,
+                              (SELECT COUNT(*) FROM voice_lines WHERE session_id = s.session_id) AS line_count,
+                              EXISTS (SELECT 1 FROM voice_session_summaries WHERE session_id = s.session_id) AS has_summary
+                       FROM voice_sessions s"""
+                )
+                meetings.extend({**dict(row), "kind": "voice", "has_summary": bool(row["has_summary"])} for row in rows)
+            if "text_meetings" in tables:
+                rows = connection.execute(
+                    """SELECT meeting_id, channel_id, started_at, message_count AS line_count,
+                              start_message_id, end_message_id FROM text_meetings"""
+                )
+                meetings.extend({**dict(row), "kind": "text", "has_summary": True} for row in rows)
+        return sorted(meetings, key=lambda row: row["started_at"], reverse=True)
+
+    def get_text_meeting_data(
+        self, meeting_id: str, *, include_saved_messages: bool = False
+    ) -> tuple[dict, list[sqlite3.Row]] | None:
+        """Read meeting metadata and optionally its saved, in-range messages in one snapshot.
+
+        The saved messages are confined to the meeting's server, channel and exclusive
+        start and end IDs. Missing meeting records return None.
+        """
+        with self._connection() as connection:
+            connection.execute("BEGIN")
+            connection.row_factory = sqlite3.Row
+            tables = self._table_names(connection)
+            record = self._text_meeting_row(connection, meeting_id) if "text_meetings" in tables else None
+            if record is None:
+                return None
+            rows = []
+            if include_saved_messages and "messages" in tables:
+                rows = connection.execute(
+                    """SELECT message_id, author_id, created_at, content FROM messages
+                       WHERE guild_id = ? AND channel_id = ? AND message_id > ? AND message_id < ?
+                       ORDER BY message_id""",
+                    (record["guild_id"], record["channel_id"], record["start_message_id"], record["end_message_id"]),
+                ).fetchall()
+            return record, rows
+
+    def get_voice_meeting_data(self, session_id: str) -> tuple[VoiceSession, list[TranscriptLine], SessionSummary | None] | None:
+        """Read a voice meeting and its lines and summary in one snapshot."""
+        with self._connection() as connection:
+            connection.execute("BEGIN")
+            if "voice_sessions" not in self._table_names(connection):
+                return None
+            try:
+                session = VoiceSession(*self._session_row(connection, session_id))
+            except SessionNotFound:
+                return None
+            return session, self._transcript_lines(connection, session_id), self._session_summary(connection, session_id)
+
+    @staticmethod
+    def _table_names(connection: sqlite3.Connection) -> set[str]:
+        return {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
 
     # Voice transcript and summary reads and helpers.
 
@@ -753,14 +833,16 @@ class SQLiteStore:
             sqlite3.Error: SQLite could not complete the operation.
         """
         with self._connection() as connection:
-            rows = connection.execute(
-                "SELECT line_id, session_id, speaker_id, started_at, ended_at, text, confidence, flags "
-                "FROM voice_lines WHERE session_id = ? ORDER BY started_at, line_id",
-                (session_id,),
-            ).fetchall()
-        return [
-            TranscriptLine(*row[:7], flags=tuple(json.loads(row[7]))) for row in rows
-        ]
+            return self._transcript_lines(connection, session_id)
+
+    @staticmethod
+    def _transcript_lines(connection: sqlite3.Connection, session_id: str) -> list[TranscriptLine]:
+        rows = connection.execute(
+            "SELECT line_id, session_id, speaker_id, started_at, ended_at, text, confidence, flags "
+            "FROM voice_lines WHERE session_id = ? ORDER BY started_at, line_id",
+            (session_id,),
+        ).fetchall()
+        return [TranscriptLine(*row[:7], flags=tuple(json.loads(row[7] or "[]"))) for row in rows]
 
     def get_session_summary(self, session_id: str) -> SessionSummary | None:
         """Read the saved summary for a voice session.
@@ -775,11 +857,15 @@ class SQLiteStore:
             sqlite3.Error: SQLite could not complete the operation.
         """
         with self._connection() as connection:
-            row = connection.execute(
-                "SELECT session_id, content, model, prompt_version, source_line_count, created_at "
-                "FROM voice_session_summaries WHERE session_id = ?",
-                (session_id,),
-            ).fetchone()
+            return self._session_summary(connection, session_id)
+
+    @staticmethod
+    def _session_summary(connection: sqlite3.Connection, session_id: str) -> SessionSummary | None:
+        row = connection.execute(
+            "SELECT session_id, content, model, prompt_version, source_line_count, created_at "
+            "FROM voice_session_summaries WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
         return SessionSummary(*row) if row else None
 
     def count_transcript_lines(self, session_id: str) -> int:
@@ -796,6 +882,112 @@ class SQLiteStore:
         """
         with self._connection() as connection:
             return self._line_count(connection, session_id)
+
+    def create_demo_tasks(self, confirmation: dict) -> list[dict]:
+        """The leader confirmed exactly these tasks. Running it again returns the same tasks."""
+        created = _tracking_now()
+        with self._connection() as connection:
+            connection.row_factory = sqlite3.Row
+            for number, task in enumerate(confirmation["tasks"], start=1):
+                connection.execute(
+                    """INSERT OR IGNORE INTO demo_tasks VALUES
+                       (:task_id, :confirmation_id, :meeting_id, :guild_id, :channel_id, :title, :description,
+                        :owner_user_id, :collaborators, :due_at, 'not_started', :activation_state, :source_refs,
+                        :created_by, :created_at, 1)""",
+                    {
+                        "task_id": f"task-{confirmation['confirmation_id']}-{number}",
+                        "confirmation_id": confirmation["confirmation_id"],
+                        "meeting_id": confirmation["meeting_id"],
+                        "guild_id": int(confirmation["guild_id"]),
+                        "channel_id": int(confirmation["channel_id"]),
+                        "title": task["title"],
+                        "description": task.get("description", ""),
+                        "owner_user_id": int(task["owner_user_id"]),
+                        "collaborators": json.dumps([str(c) for c in task.get("collaborators", [])]),
+                        "due_at": task["due_at"],
+                        "activation_state": task.get("activation_state", "active"),
+                        "source_refs": json.dumps(task.get("source_refs", []), ensure_ascii=False),
+                        "created_by": int(confirmation["created_by"]),
+                        "created_at": created,
+                    },
+                )
+            rows = connection.execute(
+                "SELECT * FROM demo_tasks WHERE confirmation_id = ? ORDER BY task_id", (confirmation["confirmation_id"],)
+            ).fetchall()
+        return [self._demo_task(row) for row in rows]
+
+    def record_demo_inquiry(self, task_id: str, owner_id: int, delivery_state: str, message_id: str | None) -> int:
+        """Save one inquiry delivery attempt and return its generated ID."""
+        state = "awaiting_reply" if delivery_state == "sent" else "closed"  # never sent: not "no reply"
+        with self._connection() as connection:
+            connection.row_factory = sqlite3.Row
+            cursor = connection.execute(
+                """INSERT INTO demo_inquiries (task_id, owner_id, delivery_state, provider_message_id, sent_at, state)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (task_id, int(owner_id), delivery_state, message_id, _tracking_now(), state),
+            )
+            return cursor.lastrowid
+
+    def record_demo_progress(self, task_id: str, user_id: int, status: str) -> dict:
+        """Only the task's owner can report, and not after completing it; ends any open inquiry for it."""
+        if status not in _DEMO_OWNER_STATUSES:
+            raise TrackingError("INVALID_ARGUMENT", f"負責人不能把狀態改成 {status}")
+        with self._connection() as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT * FROM demo_tasks WHERE task_id = ?", (task_id,)).fetchone()
+            if row is None:
+                raise TrackingError("NOT_FOUND", "沒有找到符合條件的資料。")
+            if row["owner_user_id"] != int(user_id):
+                raise TrackingError("ROLE_REQUIRED", "只有這項任務的負責人可以回報進度。")
+            if row["status"] == "cancelled":
+                raise TrackingError("INVALID_ARGUMENT", "這項任務已經取消了。")
+            if row["status"] == "completed":  # terminal: only the leader may reopen it (spec)
+                raise TrackingError("INVALID_ARGUMENT", "這項任務已經回報完成；要重新開啟請找組長。")
+            inquiry = connection.execute(
+                "SELECT inquiry_id FROM demo_inquiries WHERE task_id = ? AND state = 'awaiting_reply' ORDER BY inquiry_id DESC",
+                (task_id,),
+            ).fetchone()
+            now = _tracking_now()
+            if inquiry:  # a button press is already the confirmed, shared report: the inquiry is done
+                connection.execute(
+                    "UPDATE demo_inquiries SET state = 'closed', reply_received_at = ? WHERE inquiry_id = ?",
+                    (now, inquiry[0]),
+                )
+            connection.execute(
+                "INSERT INTO demo_progress_updates (task_id, owner_id, status, confirmed_at, inquiry_id) VALUES (?, ?, ?, ?, ?)",
+                (task_id, int(user_id), status, now, inquiry[0] if inquiry else None),
+            )
+            connection.execute(
+                "UPDATE demo_tasks SET status = ?, version = version + 1 WHERE task_id = ?", (status, task_id)
+            )
+            row = connection.execute("SELECT * FROM demo_tasks WHERE task_id = ?", (task_id,)).fetchone()
+        return self._demo_task(row)
+
+    def list_demo_tasks(self, guild_id: int) -> list[dict]:
+        """List the server's demo tasks, most recently created first."""
+        with self._connection() as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                "SELECT * FROM demo_tasks WHERE guild_id = ? ORDER BY created_at DESC, task_id", (int(guild_id),)
+            ).fetchall()
+        return [self._demo_task(row) for row in rows]
+
+    def list_demo_inquiries(self, task_id: str) -> list[dict]:
+        """List delivery and reply details for one task, oldest inquiry first."""
+        with self._connection() as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                "SELECT * FROM demo_inquiries WHERE task_id = ? ORDER BY inquiry_id", (task_id,)
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    @staticmethod
+    def _demo_task(row: sqlite3.Row) -> dict:
+        task = dict(row)
+        task["collaborators"] = json.loads(task["collaborators"])
+        task["source_refs"] = json.loads(task["source_refs"])
+        return task
 
     @staticmethod
     def _session_row(connection: sqlite3.Connection, session_id: str) -> tuple:
@@ -821,6 +1013,58 @@ class SQLiteStore:
             connection.executemany(f"DELETE FROM {table} WHERE session_id = ?", ((i,) for i in ids))
 
 
+_DEMO_TRACKING_SCHEMA = """
+CREATE TABLE IF NOT EXISTS demo_tasks (
+    task_id TEXT PRIMARY KEY,
+    confirmation_id TEXT NOT NULL,
+    meeting_id TEXT NOT NULL,
+    guild_id INTEGER NOT NULL,
+    channel_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    owner_user_id INTEGER NOT NULL,
+    collaborators TEXT NOT NULL,
+    due_at TEXT NOT NULL,
+    status TEXT NOT NULL,
+    activation_state TEXT NOT NULL,
+    source_refs TEXT NOT NULL,
+    created_by INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    version INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS demo_inquiries (
+    inquiry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL,
+    owner_id INTEGER NOT NULL,
+    delivery_state TEXT NOT NULL,
+    provider_message_id TEXT,
+    sent_at TEXT NOT NULL,
+    reply_received_at TEXT,
+    state TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS demo_progress_updates (
+    update_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL,
+    owner_id INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    confirmed_at TEXT NOT NULL,
+    inquiry_id INTEGER
+);
+"""
+
+_DEMO_OWNER_STATUSES = {"not_started", "in_progress", "blocked", "completed"}  # cancelled is the leader's
+
+
+class TrackingError(ValueError):
+    def __init__(self, error_code: str, message: str) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+
+
+def _tracking_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 _TEXT_MEETING_COLUMNS = (
     "meeting_id", "guild_id", "channel_id", "started_by", "started_at", "ended_at",
     "start_message_id", "end_message_id", "message_count", "summary", "source_message_ids",
@@ -829,5 +1073,5 @@ _TEXT_MEETING_COLUMNS = (
 
 __all__ = [
     "PROJECT_ROOT", "DEFAULT_DB", "resolve_database_path", "SQLiteStore", "SessionNotFound", "VoiceSession",
-    "NewLine", "TranscriptLine", "SessionSummary",
+    "NewLine", "TranscriptLine", "SessionSummary", "TrackingError",
 ]

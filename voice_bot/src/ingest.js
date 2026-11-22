@@ -13,12 +13,13 @@ export function parseResultLine(stdout) {
   return line ? JSON.parse(line.slice('RESULT '.length)) : null;
 }
 
-function runPython(python, args, cwd, extraEnv = {}, input = null) {
+function runPython(python, args, cwd, extraEnv = {}, input = null, signal) {
   return new Promise((resolve, reject) => {
     const child = spawn(python, args, {
       cwd,
       env: { ...process.env, PYTHONIOENCODING: 'utf-8', ...extraEnv },
       windowsHide: true,
+      signal,
     });
     let stdout = '';
     let stderr = '';
@@ -26,10 +27,16 @@ function runPython(python, args, cwd, extraEnv = {}, input = null) {
     child.stderr.on('data', (data) => (stderr += data));
     child.stdin.on('error', () => {}); // the child may exit before reading everything
     child.stdin.end(input ?? undefined);
-    child.once('error', (error) => reject(new Error(`無法啟動 Python（${python}）：${error.message}`)));
+    child.once('error', (error) => reject(signal?.aborted ? signal.reason : new Error(`無法啟動 Python（${python}）：${error.message}`)));
     child.once('close', (code) => {
-      const result = parseResultLine(stdout);
-      if (code === 0 && result) return resolve(result);
+      if (code === 0) {
+        try {
+          const result = parseResultLine(stdout);
+          if (result) return resolve(result);
+        } catch (error) {
+          return reject(error);
+        }
+      }
       const tail = (stderr || stdout).trim().split(/\r?\n/).slice(-3).join(' / ');
       reject(new Error(`${args[1]} 失敗（結束碼 ${code}）：${tail}`));
     });
@@ -61,6 +68,18 @@ export function runSummary({ python, repoRoot, sessionId, sessionDir, botDb }) {
 export function runTextMeeting({ python, repoRoot, botDb, meeting }) {
   const args = ['-m', 'meeting_ai.summarize_text_meeting', '--db', botDb];
   return runPython(python, args, repoRoot, {}, JSON.stringify(meeting));
+}
+
+/** Summarize logged messages in the current channel after checking Discord access. */
+export function runChannelSummary({ python, repoRoot, botDb, guildId, channelId }) {
+  const args = ['-m', 'meeting_ai.summarize_channel', '--db', botDb, '--guild', guildId, '--channel', channelId];
+  return runPython(python, args, repoRoot);
+}
+
+/** Answer a private /ask using the Python environment with Discord authorization. */
+export function runChannelAsk({ python, repoRoot, botDb, request, signal }) {
+  const args = ['-m', 'meeting_ai.ask_channel', '--db', botDb];
+  return runPython(python, args, repoRoot, {}, JSON.stringify(request), signal);
 }
 
 /** /ai (test): run ai_demo in bot mode; resolves its RESULT object ({ok, …} or {ok: false, error_code, message}). */

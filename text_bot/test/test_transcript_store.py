@@ -80,7 +80,7 @@ class SQLiteStoreTests(unittest.TestCase):
     def test_shares_the_message_database_in_wal_mode(self) -> None:
         messages = SQLiteStore(self.path)
         messages.save_message(1, 10, 101, 7, "text message", "2026-11-18T06:00:00+00:00")
-        self.assertEqual(len(messages.list_recent_messages(10, 101)), 1)
+        self.assertEqual(len(messages.get_channel_message_list(10, 101)), 1)
         self.assertEqual(len(self.store.list_transcript_lines("s1")), 2)
         with closing(sqlite3.connect(self.path)) as connection:  # closing() so Windows can delete it
             self.assertEqual(connection.execute("PRAGMA journal_mode").fetchone()[0], "wal")

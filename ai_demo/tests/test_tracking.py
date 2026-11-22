@@ -7,7 +7,7 @@ import sys
 import pytest
 
 from ai_demo import cli
-from ai_demo.tracking import TrackingError, TrackingStore
+from sqlite_api import SQLiteStore, TrackingError
 
 OWNER, LEADER, OTHER = 222, 111, 333
 CONFIRMATION = {
@@ -27,48 +27,46 @@ CONFIRMATION = {
 
 @pytest.fixture
 def store(tmp_path):
-    return TrackingStore(tmp_path / "messages.sqlite3")
+    return SQLiteStore(tmp_path / "messages.sqlite3")
 
 
 def test_confirming_twice_does_not_create_tasks_twice(store):
-    first = store.create_tasks(CONFIRMATION)
-    again = store.create_tasks(CONFIRMATION)
+    first = store.create_demo_tasks(CONFIRMATION)
+    again = store.create_demo_tasks(CONFIRMATION)
     assert [t["task_id"] for t in first] == [t["task_id"] for t in again] == ["task-c1-1", "task-c1-2"]
     assert first[0]["status"] == "not_started" and first[0]["activation_state"] == "active"
     assert first[1]["activation_state"] == "awaiting_leader_decision"  # owner cannot read the channel (R18)
-    assert len(store.tasks(9)) == 2
+    assert len(store.list_demo_tasks(9)) == 2
 
 
 def test_only_the_owner_reports_and_a_reply_closes_the_inquiry(store):
-    [task, _] = store.create_tasks(CONFIRMATION)
-    store.record_inquiry(task["task_id"], OWNER, "sent", "999")
+    [task, _] = store.create_demo_tasks(CONFIRMATION)
+    store.record_demo_inquiry(task["task_id"], OWNER, "sent", "999")
     with pytest.raises(TrackingError) as denied:
-        store.record_progress(task["task_id"], LEADER, "completed")  # not the leader's to report
+        store.record_demo_progress(task["task_id"], LEADER, "completed")  # not the leader's to report
     assert denied.value.error_code == "ROLE_REQUIRED"
     with pytest.raises(TrackingError):
-        store.record_progress(task["task_id"], OWNER, "cancelled")  # only the leader may cancel
+        store.record_demo_progress(task["task_id"], OWNER, "cancelled")  # only the leader may cancel
 
-    updated = store.record_progress(task["task_id"], OWNER, "in_progress")
+    updated = store.record_demo_progress(task["task_id"], OWNER, "in_progress")
     assert updated["status"] == "in_progress" and updated["version"] == 2
-    with store._connection() as connection:
-        row = connection.execute("SELECT state, reply_received_at FROM demo_inquiries").fetchone()
+    [row] = store.list_demo_inquiries(task["task_id"])
     assert row["state"] == "closed" and row["reply_received_at"]  # the button press is the confirmed report
 
 
 def test_completed_is_final_for_the_owner(store):
-    [task, _] = store.create_tasks(CONFIRMATION)
-    store.record_progress(task["task_id"], OWNER, "completed")
+    [task, _] = store.create_demo_tasks(CONFIRMATION)
+    store.record_demo_progress(task["task_id"], OWNER, "completed")
     with pytest.raises(TrackingError) as reopened:
-        store.record_progress(task["task_id"], OWNER, "in_progress")  # reopening is the leader's
+        store.record_demo_progress(task["task_id"], OWNER, "in_progress")  # reopening is the leader's
     assert reopened.value.error_code == "INVALID_ARGUMENT"
 
 
 def test_a_failed_message_is_not_an_unanswered_question(store):
-    [task, _] = store.create_tasks(CONFIRMATION)
-    store.record_inquiry(task["task_id"], OWNER, "delivery_failed", None)
-    with store._connection() as connection:
-        row = connection.execute("SELECT delivery_state, state FROM demo_inquiries").fetchone()
-    assert tuple(row) == ("delivery_failed", "closed")
+    [task, _] = store.create_demo_tasks(CONFIRMATION)
+    store.record_demo_inquiry(task["task_id"], OWNER, "delivery_failed", None)
+    [row] = store.list_demo_inquiries(task["task_id"])
+    assert (row["delivery_state"], row["state"]) == ("delivery_failed", "closed")
 
 
 def test_bot_mode_track_reads_the_confirmation_from_stdin(tmp_path, monkeypatch, capsys):

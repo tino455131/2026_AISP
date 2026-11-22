@@ -44,22 +44,22 @@ class BotEventTests(unittest.IsolatedAsyncioTestCase):
                 "New message [channel=200, author=7]: 'hello'",
             ],
         )
-        self.assertEqual(len(self.store.list_recent_messages(10, 100)), 1)
-        self.assertEqual(len(self.store.list_recent_messages(10, 200)), 1)
+        self.assertEqual(len(self.store.get_channel_message_list(10, 100)), 1)
+        self.assertEqual(len(self.store.get_channel_message_list(10, 200)), 1)
 
         await self.client.on_raw_message_edit(
             SimpleNamespace(guild_id=10, message_id=1, data={"content": "updated"})
         )
-        self.assertEqual(self.store.list_recent_messages(10, 100)[0]["content"], "updated")
+        self.assertEqual(self.store.get_channel_message_list(10, 100)[0]["content"], "updated")
         await self.client.on_raw_message_edit(
             SimpleNamespace(
                 guild_id=10, message_id=5, channel_id=100,
                 data={"content": "added after an attachment"}, message=message(5, 10, 100),
             )
         )
-        self.assertEqual(self.store.list_recent_messages(10, 100)[0]["content"], "added after an attachment")
+        self.assertEqual(self.store.get_channel_message_list(10, 100)[-1]["content"], "added after an attachment")
         await self.client.on_raw_message_delete(SimpleNamespace(guild_id=10, message_id=1))
-        self.assertEqual([row["message_id"] for row in self.store.list_recent_messages(10, 100)], [5])
+        self.assertEqual([row["message_id"] for row in self.store.get_channel_message_list(10, 100)], [5])
 
     async def test_reordering_an_uncached_edit_cannot_undo_a_newer_edit(self) -> None:
         created = datetime(2026, 10, 28, tzinfo=timezone.utc)
@@ -83,7 +83,7 @@ class BotEventTests(unittest.IsolatedAsyncioTestCase):
             await self.client.on_raw_message_edit(first)
             await self.client.on_raw_message_edit(first)
         channel.fetch_message.assert_awaited_once_with(9)
-        row = self.store.list_recent_messages(10, 100)[0]
+        row = self.store.get_channel_message_list(10, 100)[0]
         self.assertEqual(row["content"], "latest edit")
         self.assertEqual(row["edited_at"], latest.data["edited_timestamp"])
 
@@ -126,7 +126,7 @@ class BotEventTests(unittest.IsolatedAsyncioTestCase):
         await self.client._backfill_channel(channel)
         await self.client._backfill_channel(channel)
         self.assertEqual(channel.after_ids, [None, 6])
-        self.assertEqual([row["message_id"] for row in self.store.list_recent_messages(10, 100)], [6, 5])
+        self.assertEqual([row["message_id"] for row in self.store.get_channel_message_list(10, 100)], [5, 6])
 
 
 if __name__ == "__main__":
