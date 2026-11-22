@@ -483,3 +483,14 @@
 - 保留 `TextMeetingStore` 當成包一層的轉接：多一層，沒有好處。
 
 **Led by:** Ping3227
+
+## 2026-11-22 — 根目錄 README 作為專案首次使用入口
+
+**Decision**
+
+- 將根目錄的 [README.md](README.md) 設為首次使用入口，集中提供 Windows、macOS、Linux 的安裝步驟、根目錄 `.env` 設定與 Team Bot 啟動方式。從此頁也能找到 Bot 操作、AI 工具開發、SQLite API 與系統流程圖。
+- 操作細節、開發介面與測試範例由各主題文件維護，根目錄 README 提供對應連結。
+
+**Why**
+
+- 新成員可以從同一頁完成環境設定並啟動 Bot，再依需要查閱開發或操作文件。共用步驟集中維護，能降低多份 README 的設定與指令不一致的情況。

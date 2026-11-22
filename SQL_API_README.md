@@ -4,11 +4,7 @@
 
 ## 安裝與路徑
 
-在專案根目錄，用要執行程式的 Python 3.11 以上環境安裝。
-
-```sh
-python -m pip install -e .
-```
+共用介面會依[根目錄安裝步驟](README.md#從專案根目錄設定與啟動)安裝到各元件使用的 Python 環境。
 
 Bot 與 CLI 會載入根目錄的 `.env`。選填的 `BOT_DB` 支援絕對路徑與相對專案根目錄的路徑。CLI 的 `--db` 優先，若傳入相對路徑，則以執行命令時的位置為準。獨立 Python 工具可明確傳入 `SQLiteStore(path)`，或使用 `DEFAULT_DB` 與 `resolve_database_path`。這個儲存模組不會自行讀取 `.env`。
 

@@ -1,5 +1,18 @@
 # 2026_AISP
 
+Discord 團隊助理提供文字記錄、語音與文字會議摘要，以及私人 AI 問答。第一次使用，從下方安裝與啟動開始。
+
+| 要做什麼 | 去哪裡看 |
+|---|---|
+| 安裝、設定、啟動 | [本頁的快速開始](#從專案根目錄設定與啟動) |
+| 操作 Discord Bot、查已知限制 | [Team Bot 使用說明](team_bot/README.md) |
+| 開發 AI tool、用假資料測試 | [AI 團隊接手指南](docs/ai_team_guide.md) |
+| 串接與設定會議摘要器 | [摘要器介面](meeting_ai/README.md) |
+| 查詢 SQL 方法、資料表及授權規則 | [SQLite API](SQL_API_README.md) · [資料表](docs/database_schema.md) · [Discord 授權讀取](docs/ai_memory_api.md) |
+| 了解程式與資料流 | [系統流程圖](docs/SystemWorkflow.html) |
+| 查模組的操作與測試 | [文字 Bot](text_bot/README.md) · [語音 Bot](voice_bot/README.md) · [語音轉寫](voice_bot/voice_stt/README.md) · [AI demo](ai_demo/README.md) |
+| 查需求或準備展示 | [專案規格](spec.md) · [Demo 劇本](Demo_Script.md) |
+
 ## 從專案根目錄設定與啟動
 
 需要 Python 3.11 和 Node.js 22.12 以上。以下指令都在專案根目錄執行。兩個 Python 虛擬環境各自安裝所需套件，並共用同一份根目錄 .env。
@@ -65,31 +78,18 @@ export LD_LIBRARY_PATH="$cuda_libs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 | `VOICE_BOT_TOKEN` | 語音 Bot 的 Discord Token，也用於查看逐字稿與摘要。合併版（`team_bot`）的語音、指令、文字記錄都用這個帳號。 |
 | `DISCORD_GUILD_ID` | 兩個 Bot 共用的 Discord 伺服器 ID。 |
 | `BOT_DB` | 選填，預設為 `data/messages.sqlite3`。相對路徑以根目錄為準。 |
-| `MEETING_SUMMARIZER` | 預設 `simple`。使用 `openai` 時需填 `OPENAI_API_KEY`，可用 `MEETING_SUMMARY_MODEL` 選模型。也可以填 `claude-code`（這台電腦已登入的 Claude Code，測試用）或 `模組路徑:類別名稱`。 |
+| `OPENAI_API_KEY` | 使用 `/ask` 或選擇 OpenAI 摘要、轉寫時需要。 |
+| `MEETING_SUMMARIZER` | 預設 `simple`。其他摘要器見 [meeting_ai](meeting_ai/README.md#內建的實作)。 |
+| `MEETING_SUMMARY_MODEL` | OpenAI 摘要和 `/ask` 使用的模型，預設為 `gpt-6-luna`。 |
 
-**(若皓元或ping忘了提供TOKEN要問他們)**
-
-其他錄音與路徑選項見 [.env.example](.env.example)。環境變數優先於 .env。已有舊設定者，從各 Bot 原本的 .env 將 `DISCORD_TOKEN` 分別填入兩個新欄位，並確認兩個 Bot 使用同一個伺服器 ID。現有資料庫的搬移步驟見 [SQL API 文件](SQL_API_README.md#搬移既有資料庫)。
+其他錄音與路徑選項見 [.env.example](.env.example)。環境變數優先於 .env。已有舊設定者，從各 Bot 原本的 .env 將 `DISCORD_TOKEN` 分別填入兩個新欄位，並確認兩個 Bot 使用同一個伺服器 ID。既有資料庫可用 `BOT_DB` 指定，路徑解析見 [SQLite API](SQL_API_README.md#安裝與路徑)。
 
 ### 執行
 
-**合併版（建議）**：Discord 裡只有一個 bot，語音錄音、所有指令（`/record`、`/meeting`、`/ai`、`/ping`）和文字訊息記錄都由它負責，只需要 `VOICE_BOT_TOKEN`。第一次使用前要在 Developer Portal 為這個 bot 開 Message Content Intent 和 Server Members Intent，見 [team_bot](team_bot/README.md)。
+依 [Team Bot 的 Discord 權限](team_bot/README.md#discord-權限)設定 `VOICE_BOT_TOKEN` 對應的應用程式。確認根目錄 `.env` 已填好 `VOICE_BOT_TOKEN` 和 `DISCORD_GUILD_ID`，再執行。
 
-也可以照舊用兩個終端機分別啟動文字及語音 Bot（兩個帳號）。先依 [文字 Bot](text_bot/README.md) 與 [語音 Bot](voice_bot/README.md) 的說明，設定各自的 Discord 應用程式與邀請權限。合併版和單獨的文字 Bot 不要同時跑，否則訊息會記兩次。
+```sh
+node team_bot/start.mjs
+```
 
-| 操作 | Windows PowerShell | macOS／Linux |
-|---|---|---|
-| 合併版（一個 bot） | `node team_bot/start.mjs` | `node team_bot/start.mjs` |
-| 文字 Bot | `./text_bot/.venv/Scripts/python.exe text_bot/bot.py` | `./text_bot/.venv/bin/python text_bot/bot.py` |
-| 語音 Bot | `npm.cmd --prefix voice_bot start` | `npm --prefix voice_bot start` |
-| 離線檢查語音 Bot 設定 | `npm.cmd --prefix voice_bot run check -- --offline` | `npm --prefix voice_bot run check -- --offline` |
-| 手動轉寫音檔 | `./voice_bot/voice_stt/.venv/Scripts/python.exe -m voice_bot.voice_stt.stt 會議錄音.wav` | `./voice_bot/voice_stt/.venv/bin/python -m voice_bot.voice_stt.stt 會議錄音.wav` |
-| 文字 Bot 與 SQLite 測試 | `./text_bot/.venv/Scripts/python.exe -m unittest discover -s text_bot/test -t text_bot` | `./text_bot/.venv/bin/python -m unittest discover -s text_bot/test -t text_bot` |
-| 摘要與逐字稿授權測試 | `./text_bot/.venv/Scripts/python.exe -m unittest meeting_ai.tests.test_show_session` | `./text_bot/.venv/bin/python -m unittest meeting_ai.tests.test_show_session` |
-| 轉寫測試 | `./voice_bot/voice_stt/.venv/Scripts/python.exe -m pytest -c voice_bot/voice_stt/pytest.ini voice_bot/voice_stt/tests` | `./voice_bot/voice_stt/.venv/bin/python -m pytest -c voice_bot/voice_stt/pytest.ini voice_bot/voice_stt/tests` |
-| 摘要測試 | `./voice_bot/voice_stt/.venv/Scripts/python.exe -m pytest meeting_ai/tests/test_meeting_ai.py` | `./voice_bot/voice_stt/.venv/bin/python -m pytest meeting_ai/tests/test_meeting_ai.py` |
-| 語音 Bot 測試 | `npm.cmd --prefix voice_bot test` | `npm --prefix voice_bot test` |
-
-## 共用 SQLite 介面
-
-API 使用方式、欄位與方法命名對照見 [SQL_API_README.md](SQL_API_README.md)。各元件的資料流見 [SystemWorkflow.html](docs/SystemWorkflow.html)。
+在 Discord 用 `/help` 查看目前註冊的指令。要分開啟動或測試元件，請使用上方文件索引。

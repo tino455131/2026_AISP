@@ -6,9 +6,7 @@
 2. 交給 [`meeting_ai`](../meeting_ai/README.md) 整理摘要（可替換的介面），存進資料庫
 3. 在語音頻道聊天室留一則**靜音**訊息和「查看摘要」「查看逐字稿」按鈕：按的人才看得到內容，不會吵到其他人
 
-為什麼用 Node.js：Discord 從 2026 年 3 月起語音強制端對端加密（DAVE），目前只有
-`@discordjs/voice`（0.19.2 起）能正確「聽」別人說話；Python 的套件還不行。所以這支只負責錄音，
-其餘都交給 Python。
+本專案由 Node.js 的 `@discordjs/voice` 接收 Discord 語音，再交給 Python 轉寫和摘要。
 
 ## 一次性設定
 
@@ -38,7 +36,7 @@ npm --prefix voice_bot start
 **啟動時臨時換設定**：參數會蓋過 `.env`，只對這次啟動有效，適合換電腦或測試時快速切換：
 
 ```bash
-npm start -- --summarizer openai --stt openai
+npm --prefix voice_bot start -- --summarizer openai --stt openai
 ```
 
 | 參數 | 可以填 |
@@ -48,7 +46,7 @@ npm start -- --summarizer openai --stt openai
 | `--consent` | `direct`（進來就錄）、`ask`（按了同意才錄） |
 | `--auto-record` | `on`、`off` |
 
-`npm start -- --help` 會列出來。API key 只能放 `.env`，不能當參數，因為參數會出現在命令列和紀錄裡。
+`npm --prefix voice_bot start -- --help` 會列出來。API key 只能放 `.env`，不能當參數，因為參數會出現在命令列和紀錄裡。
 長期用的設定寫在 `.env`，臨時換用參數。`/record` 指令會自動註冊到 `.env` 指定的伺服器。
 
 ## 使用
@@ -60,11 +58,10 @@ npm start -- --summarizer openai --stt openai
 | 「不要錄我」按鈕 | 任何人 | 這次不再錄你，並**刪掉你這次已錄的部分** |
 | 「繼續錄我」按鈕 | 任何人 | 按錯「不要錄我」時，從現在起恢復錄你 |
 | `/record status` | 任何人 | 看錄了多久、正在錄哪些人 |
-| `/meeting start`、`/meeting end` | 組長 | 文字會議：結束後在同一個頻道貼出會議紀錄（見 [team_bot](../team_bot/README.md)） |
-| `/ai tasks`、`/ai ask` | 看得到那場會議頻道的人 | 【測試】用 AI 整理任務或問問題，只有你看得到（見 [ai_demo](../ai_demo/README.md)） |
-| `/ping` | 任何人 | 確認 bot 在線上 |
 | `/record stop` | 組長 | 停止錄音 → 轉文字 → 摘要，頻道裡那則訊息會隨進度更新 |
 | 「查看摘要」「查看逐字稿」按鈕 | 看得到這個語音頻道的人（沒參加會議也可以） | 只有按的人看得到；約 5 秒，太長時改成附件 |
+
+其他斜線指令及錄音的已知限制見 [Team Bot 使用說明](../team_bot/README.md)。
 
 - **錄音同意方式**（`.env` 的 `CONSENT_MODE`）：
   - `direct`（預設）：語音頻道裡的人**都會被錄**，中途進來的人也是，並在聊天室 @ 他告知。按了「不要錄我」的人，這次錄音就不會再錄他，離開再回來也一樣。
@@ -95,15 +92,7 @@ npm start -- --summarizer openai --stt openai
 
 ## 換摘要器
 
-預設是 `simple`（關鍵字規則，不用 API，只是讓流程能測）。要用 OpenAI：
-
-1. 在 repo 根目錄執行 `voice_bot/voice_stt/.venv/Scripts/python.exe -m pip install -r voice_bot/voice_stt/requirements.txt`，將 OpenAI 套件裝進摘要實際使用的環境。
-2. 在根目錄 .env 設定 `MEETING_SUMMARIZER=openai` 和 `OPENAI_API_KEY`；可選擇設定 `MEETING_SUMMARY_MODEL`，預設為 `gpt-6-luna`。
-3. 執行 `npm --prefix voice_bot run check` 確認設定，再用 `npm --prefix voice_bot start` 啟動。
-
-若原本設定 `MEETING_SUMMARIZER=claude`，請改成 `openai`，並以 `OPENAI_API_KEY` 取代 `ANTHROPIC_API_KEY`。
-
-AI 組要換成自己的版本，見 [meeting_ai/README.md](../meeting_ai/README.md)。
+語音會議使用 `MEETING_SUMMARIZER`。摘要器選項、模型設定與替換介面見 [meeting_ai](../meeting_ai/README.md#內建的實作)。
 
 ## 出問題時
 

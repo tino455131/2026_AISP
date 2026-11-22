@@ -1,85 +1,36 @@
-# team_bot — 語音 bot 和文字 bot 合併版
+# Team Bot 使用說明
 
-在 Discord 裡只會看到**一個 bot**，語音錄音、文字會議、文字訊息記錄都由它負責。
+Team Bot 使用一個 Discord 帳號。Node.js 負責指令和錄音，Python 負責把文字存進共用資料庫。完整資料流見[系統流程圖](../docs/SystemWorkflow.html)。
 
-一個 bot 帳號裡同時跑兩支程式：
+## Discord 權限
 
-| 程式 | 語言 | 負責 |
-|---|---|---|
-| `voice_bot/` | Node.js | 語音錄音、`/record`、`/meeting`、`/ai`、`/summary_this_channel`、`/ask`、`/help`、`/ping`。**所有指令都由它註冊** |
-| `team_bot/text_logger.py` | Python | 沿用 `text_bot/` 的程式，把文字訊息存進資料庫，不註冊指令 |
-
-兩支程式都讀根目錄的 `.env`，用同一個 token（`VOICE_BOT_TOKEN`），透過 `sqlite_api` 寫進同一個資料庫（預設 `data/messages.sqlite3`）。`TEXT_BOT_TOKEN` 只有單獨跑文字 bot 時才用。
-
-語音一定要用 Node.js（`@discordjs/voice` 才收得到 Discord 加密後的語音），文字 bot 原本是 Python，所以合併後內部還是兩支程式。
-
-`text_bot/bot.py` **沒有改**，還是可以用 `TEXT_BOT_TOKEN` 單獨跑。不要和合併版同時跑，否則同樣的訊息會被記錄兩次。
-
-## 第一次使用：在 Developer Portal 開兩個權限
-
-文字記錄和 `/meeting` 要讀訊息內容，所以語音 bot 的應用程式要多開兩個權限：
-
-1. 打開 [Discord Developer Portal](https://discord.com/developers/applications)，選語音 bot 的應用程式。
-2. 左邊點 **Bot**，往下找到 **Privileged Gateway Intents**。
-3. 打開 **Message Content Intent** 和 **Server Members Intent**，按 **Save Changes**。
-
-bot 在要開會的文字頻道還需要「讀取訊息歷史」權限。沒有的話，`/meeting start` 會直接說少了什麼；`npm run check` 印出的邀請連結已經包含這個權限。
+1. 在 [Discord Developer Portal](https://discord.com/developers/applications) 選擇使用 `VOICE_BOT_TOKEN` 的應用程式。
+2. 在 **Bot → Privileged Gateway Intents** 啟用 **Message Content Intent** 和 **Server Members Intent** 並儲存。
+3. 邀請 Bot 時使用 `bot` 和 `applications.commands` scope。依要用的功能，在來源頻道授予 **View Channel**、**Read Message History**、**Send Messages** 和語音頻道的 **Connect**。邀請連結可用[語音 Bot 的設定檢查](../voice_bot/README.md#一次性設定)產生。
 
 ## 啟動
 
-先在根目錄執行 `SETUP_Windows.ps1`（或 macOS／Linux 的腳本），它會建立 `text_bot/.venv`、`voice_bot/voice_stt/.venv`，安裝 `sqlite_api`，並從 `.env.example` 建立 `.env`。在 `.env` 填好 `VOICE_BOT_TOKEN` 和 `DISCORD_GUILD_ID` 後，在 repo 根目錄執行：
-
-```bash
-node team_bot/start.mjs
-```
-
-- 兩支程式的訊息會加上 `[語音]`、`[文字]` 前綴。
-- 啟動參數和 voice_bot 一樣，例如 `node team_bot/start.mjs --summarizer openai --stt openai`；`--help` 會列出全部。
-- 按 Ctrl+C 會一起停；語音如果正在錄，會先收尾再結束。
-- 文字記錄起不來時（例如還沒開上面的權限），語音和指令照常運作，畫面會說原因。
-
-只想要語音和指令、不要記錄文字訊息：在 repo 根目錄執行 `npm --prefix voice_bot start`。`/meeting` 也能用，因為它是開會結束時才直接向 Discord 讀那段訊息，不靠文字記錄。
+從[根目錄 README](../README.md#從專案根目錄設定與啟動)完成安裝與啟動。Terminal 的 `[語音]` 和 `[文字]` 前綴可分辨兩個程序。按 Ctrl+C 會一起停止，正在錄音時會先收尾。啟動旗標可用 `node team_bot/start.mjs --help` 查詢。
 
 ## 指令
 
-在 Discord 執行 `/help` 可查看目前所有指令和子指令。
+在 Discord 執行 `/help` 可查看目前註冊的所有指令與子指令。
 
-| 指令 | 誰可以用 | 做什麼 |
+| 想做什麼 | 範例 | 權限與結果 |
 |---|---|---|
-| `/meeting start` | 組長 | 在這個文字頻道開始會議，bot 貼一則「會議開始」 |
-| `/meeting end` | 組長 | 結束會議：讀這段期間的發言（bot 的訊息不算），交給摘要器，在同一個頻道貼出會議紀錄 |
-| `/meeting status` | 任何人 | 看這個頻道有沒有進行中的會議 |
-| `/help` | 任何人 | 查看已註冊的指令與用途，清單只顯示給執行者 |
-| `/ask question:<問題>` | 任何人，查詢歷史時須有頻道歷史讀取權限 | 私人 OpenAI 問答，可問一般知識、寫作、程式或目前頻道最近的討論 |
-| `/summary_this_channel` | 能讀取頻道歷史的成員 | 用 `MEETING_SUMMARIZER` 摘要目前頻道最近 100 則已存入 SQLite 的文字，結果只顯示給提問者 |
-| `/record …` | 見 [voice_bot](../voice_bot/README.md) | 語音錄音 |
-| `/ai tasks`、`/ai ask` | 看得到那場會議頻道的人 | 【測試】AI 整理任務、問會議問題，結果只有你看得到（見 [ai_demo](../ai_demo/README.md)） |
-| `/ping` | 任何人 | 確認 bot 在線上 |
+| 錄音與轉寫 | `/record start` → `/record stop` | 組長開始與停止。摘要與逐字稿透過授權查看按鈕取得。詳見[語音操作](../voice_bot/README.md#使用)。 |
+| 整理一段文字會議 | `/meeting start` → `/meeting end` | 組長標記會議起訖。Bot 從 Discord 讀取期間的發言，將紀錄存入 `text_meetings` 並貼回原頻道。 |
+| 摘要目前頻道 | `/summary_this_channel` | 使用 `MEETING_SUMMARIZER` 整理目前頻道最近最多 100 則已存文字。來源權限通過後，結果私下顯示。 |
+| 私人 OpenAI 問答 | `/ask question:解釋 Python 的 async`、`/ask question:我們剛才決定了什麼？` | 一般問題直接回答。需要目前頻道歷史時，驗權後讀取 SQLite，答案只顯示給提問者。 |
+| 問指定會議或追蹤任務 | `/ai ask`、`/ai tasks`、`/ai tracked` | 測試用功能。請先閱讀下方的追蹤限制。流程見 [AI demo](../ai_demo/README.md)。 |
 
-組長的判斷和 `/record` 一樣：`LEADER_ROLE_ID` 身分組，沒設的話是有「管理伺服器」權限的人。
+組長由 `LEADER_ROLE_ID` 指定。留空時，具有 **Manage Server** 權限的人可使用組長操作。語音與文字會議使用同一個 `MEETING_SUMMARIZER`。會議進行中的起點保存在錄音目錄的 `active-meetings.json`。
 
-## 私人 AI 問答
+`/ask` 使用根目錄 `.env` 的 `OPENAI_API_KEY` 和 `MEETING_SUMMARY_MODEL`。歷史工具最多取 100 則已存文字，交給模型的文字上限為 12,000 字元。開發教學見 [AI 團隊接手指南](../docs/ai_team_guide.md)。
 
-在根目錄的 `.env` 設定 `OPENAI_API_KEY`。`/ask` 使用 `MEETING_SUMMARY_MODEL` 指定的 OpenAI 模型，預設是 `gpt-6-luna`。既有虛擬環境更新後，請從根目錄重新安裝文字 Bot 的依賴，再重啟 Team Bot。
+## 已知限制
 
-- Windows PowerShell 使用 `.\text_bot\.venv\Scripts\python.exe -m pip install -r text_bot/requirements.txt`。
-- macOS 使用 `./text_bot/.venv/bin/python -m pip install -r text_bot/requirements.txt`。
-- 如有覆寫 `READER_PYTHON`，請用該 Python 安裝同一份依賴。
-
-`/ask question:解釋 Python 的 async` 直接回答。`/ask question:我們剛才決定了什麼？` 會驗證來源頻道權限，再交給 OpenAI 整理 SQLite 已記錄的文字。每次最多讀取最近 100 則，並保留最多 12,000 個文字字元。答案留在原頻道，只有提問者看得到。`/ai ask` 仍用於指定會議的問答，`/summary_this_channel` 仍由 `MEETING_SUMMARIZER` 產生摘要。
-
-工具開發方式見 [meeting_ai/README.md](../meeting_ai/README.md#開發-ask-工具)。
-
-## 文字會議怎麼運作
-
-```
-/meeting start ─▶ bot 貼「會議開始」（記住這則訊息的位置）
-     ……大家在這個頻道討論……
-/meeting end ──▶ bot 貼「會議結束」→ 讀兩則之間的發言 → 摘要器整理 → 把那則訊息改成會議紀錄
-```
-
-- 摘要器和語音會議用同一個（`MEETING_SUMMARIZER`），所以兩種紀錄的格式一樣。
-- `/summary_this_channel` 可直接執行，讀取 SQLite 已記錄的文字。指令會在整理前確認 Bot 和提問者的來源頻道權限，回覆前再次驗權。
-- 會議進行中 bot 重開也沒關係，開始的位置記在 `voice_bot/recordings/active-meetings.json`。
-- 紀錄存進資料庫的 `text_meetings` 表，只存摘要和每項依據的訊息 ID，不另外保存完整訊息（spec：一般聊天不長期完整保存）。
-- 待辦只是候選；照 spec R06，正式任務要組長明確指派，這部分是 AI 組的工作。
+- **直接錄音模式。** 目前預設模式將成員標成 `included`，轉寫只接受 `agreed`，因此錄音可能被略過並刪除，即使開啟 `KEEP_AUDIO`。這個模式在錄音通知發送失敗時仍可能開始錄音。測試時可從根目錄執行 `node team_bot/start.mjs --consent ask --auto-record off`，再由組長開始錄音及成員按同意。 [錄音開始](../voice_bot/src/commands.js) · [轉寫匯入](../voice_bot/voice_stt/stt/ingest_recording.py)
+- **追蹤狀態的可見範圍。** `/ai tracked` 會向能讀來源頻道的成員顯示負責人回報的狀態。組長失去來源權限後，仍可能用先前的確認按鈕建立追蹤。 [AI 追蹤](../voice_bot/src/ai.js)
+- **文字會議整理失敗。** `/meeting end` 先清除進行中的會議，再讀 Discord 和呼叫摘要器。後續步驟失敗時，同一場會議無法用原指令重試。 [文字會議](../voice_bot/src/meetings.js)
+- **聊天保存與同步。** 文字記錄程序會保存可讀頻道的一般聊天；保留期限仍需由部署設定。Bot 離線期間發生的編輯和刪除可能留在本地舊紀錄。 [文字記錄](../text_bot/README.md)

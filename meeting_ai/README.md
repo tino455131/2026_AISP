@@ -45,7 +45,7 @@ class MeetingSummarizer(Protocol):
 | `claude-code` | `claude_code.py` | 交給這台電腦已登入的 Claude Code（`claude` 指令），不用 API key，算在該帳號的訂閱額度；測試用 |
 
 由專案根目錄 .env 設定環境變數 `MEETING_SUMMARIZER=simple|openai|claude-code`，或 `模組路徑:類別名稱`（見下一節）。OpenAI 摘要器需要 `OPENAI_API_KEY`，可用 `MEETING_SUMMARY_MODEL` 覆蓋模型。舊的 `claude` 設定已移除，需改成 `openai`。
-`voice_bot` 會使用 `voice_stt` 的 Python 環境執行摘要；在 repo 根目錄執行 `voice_bot/voice_stt/.venv/Scripts/python.exe -m pip install -r voice_bot/voice_stt/requirements.txt` 安裝相依套件。完整設定與其他平台指令見[根目錄 README](../README.md#從專案根目錄設定與啟動)。
+`voice_bot` 會使用 `voice_stt` 的 Python 環境執行摘要；安裝與設定步驟見[根目錄 README](../README.md#從專案根目錄設定與啟動)。
 
 ## 換成你們自己的版本
 
@@ -95,39 +95,9 @@ text_bot/.venv/Scripts/python.exe -m meeting_ai.show_session <session_id> --memb
 
 ## 開發 /ask 工具
 
-`/ask` 的一次問答由 `ask_channel.py` 處理。一般問題在第一次 OpenAI 請求直接得到回答。若問題需要目前頻道的紀錄，程式會要求模型先呼叫 `get_current_channel_history`。這個工具會驗證 Bot 和提問者的權限，透過 `AuthorizedMessageReader` 讀取 SQLite，再把結果交給 OpenAI。回覆前會重新驗權。
+`/ask` 由 [ask_channel.py](ask_channel.py) 處理，使用文字 Bot 的 Python 環境，固定走 OpenAI Responses API。一般問題直接回答。需要目前頻道歷史時，先呼叫 `get_current_channel_history`，再讓模型選用已登記的工具。摘要器介面 `MeetingSummarizer` 則供錄音、文字會議和 `/summary_this_channel` 使用。
 
-在 [tools.py](tools.py) 新增參數型別、非同步函式及 `TOOLS` 登記項目。例如可新增一個工具，計算最近訊息中含有某個關鍵字的則數：
-
-```python
-class CountMentionsArgs(ToolArguments):
-    keyword: str
-
-
-async def count_mentions(context: ToolContext, args: CountMentionsArgs) -> dict:
-    rows = await context.read_history()
-    keyword = args.keyword.strip().casefold()
-    count = sum(keyword in row["content"].casefold() for row in rows) if keyword else 0
-    return {"count": count}
-```
-
-在同一檔案的 `TOOLS` 字典加上這一項：
-
-```python
-"count_mentions": Tool(
-    "計算目前 Discord 頻道最近紀錄中包含關鍵字的訊息則數。",
-    CountMentionsArgs,
-    count_mentions,
-),
-```
-
-參數型別會產生 function tool 的 JSON Schema。欄位請明確宣告為必填，需要可空值時可用 `str | None`。`ToolArguments` 會拒絕未宣告的參數和不符型別的輸入。身分和來源由後端的 `ToolContext` 固定，`context.read_history()` 會使用授權 reader。處理函式回傳可 JSON 序列化的字典，供模型產生答案。新登記的工具可在完成首次歷史查詢後由模型選用。
-
-從專案根目錄執行下列測試。它使用暫存 SQLite、模擬 Discord 權限與假 OpenAI client。
-
-```powershell
-.\text_bot\.venv\Scripts\python.exe -m unittest meeting_ai.tests.test_ask_channel
-```
+從假資料、工具註冊到假 OpenAI client 測試的完整範例見 [AI 團隊接手指南](../docs/ai_team_guide.md#3-新增第一個-tool)。
 
 ## 測試
 

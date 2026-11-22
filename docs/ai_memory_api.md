@@ -24,7 +24,7 @@
 messages = await client.message_reader.recent_messages_for(member_id, channel_id, limit=100)
 ```
 
-回傳 `sqlite3.Row` 清單。先取最近指定筆數，再按時間由舊到新排列。`/ask` 的 `get_current_channel_history` 就使用此 reader，來源與提問者由 Discord interaction 決定。工具範例見 [meeting_ai/README.md](../meeting_ai/README.md#開發-ask-工具)。
+回傳 `sqlite3.Row` 清單。先取最近指定筆數，再按時間由舊到新排列。`/ask` 的 `get_current_channel_history` 就使用此 reader，來源與提問者由 Discord interaction 決定。工具範例見 [AI 團隊接手指南](ai_team_guide.md#3-新增第一個-tool)。
 
 
 | 欄位 | 說明 |

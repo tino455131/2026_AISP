@@ -1,18 +1,18 @@
 # ai_demo — 會議之後的 AI 功能（測試用）
 
-> **測試用。** 這是 AI 組正式版出來前的示範，照 `spec.md` v1.1 的規則寫。它直接讀本機資料庫、**不檢查 Discord 權限**，結果只印在終端機，不要直接貼給別人。
+> **測試用。** 終端機透過 `SQLiteStore` 查閱本機資料，適合使用 [AI 團隊指南](../docs/ai_team_guide.md)中的假資料。Discord 的 `/ai` 由 Bot 檢查來源頻道的權限。
 
-這是一個獨立的單元：讀 bot 的 SQLite（語音錄音和文字會議都可以），用 AI 做 spec 裡會議之後的事。AI 預設用這台電腦已登入的 Claude Code，和摘要一樣。
+這是一個獨立的單元：讀 bot 的 SQLite（語音錄音和文字會議都可以），用 AI 做 spec 裡會議之後的事。AI 來源可用 `AI_DEMO_ENGINE` 或 `--ai` 設定。
 
 ```
 SQLite ──▶ SQLiteStore（唯讀）──▶ local_data.py ──▶ tasks.py：整理正式任務／待確認提案
                                  └▶ ask.py：問這場會議的問題
-                      AI 來源：engine.py（claude-code／claude／openai／自訂）
+                      AI 來源：engine.py（claude-code／openai／自訂）
 ```
 
 ## 在 Discord 裡用：`/ai`
 
-bot 有兩個測試指令，結果**只有下指令的人看得到**：
+`/ai` 提供以下三個子指令，回覆只顯示給執行者。追蹤狀態的資料可見範圍見 [Team Bot 已知限制](../team_bot/README.md#已知限制)。
 
 | 指令 | 做什麼 |
 |---|---|
@@ -27,9 +27,9 @@ bot 有兩個測試指令，結果**只有下指令的人看得到**：
 
 流程：`Discord /ai` → voice_bot（`src/ai.js`）檢查權限 → `python -m ai_demo --bot …` 讀資料庫、問 AI → 結果只回給你。
 
-文字會議的原文不存在資料庫裡（spec：一般聊天不長期保存）。下 `/ai` 時，bot 當場向 Discord 讀那段訊息交給 ai_demo。被 @ 的人即使沒說話也會有代號，所以「@某人 負責…」認得出負責人。
+文字會議表保存範圍、摘要和引用。Discord 的 `/ai` 會從來源頻道讀取原文，若回傳空清單，就以已保存的摘要回答。被 @ 的人即使沒說話也會有代號，所以「@某人 負責…」認得出負責人。
 
-各功能讀哪些資料表，見 [docs/database_schema.md](../docs/database_schema.md)。給 AI 組的完整說明（假資料庫、讀取介面、對照 spec 的結果）見 [docs/ai_team_guide.md](../docs/ai_team_guide.md)。
+各功能讀哪些資料表，見 [docs/database_schema.md](../docs/database_schema.md)。AI 工具開發及假資料說明見 [docs/ai_team_guide.md](../docs/ai_team_guide.md)。
 
 ## 追蹤進度（測試）
 
@@ -65,7 +65,7 @@ voice_bot/voice_stt/.venv/Scripts/python.exe -m ai_demo ask <會議ID> "誰負�
 
 | 選項 | 說明 |
 |---|---|
-| `--ai` | AI 來源：`claude-code`、`claude`、`openai`，或 `模組路徑:類別名稱`。沒給的話依序看 `AI_DEMO_ENGINE`、正在用的摘要器（`simple` 除外），最後才是 `claude-code`。所以 bot 啟動時加 `--summarizer openai`，`/ai` 也會跟著改用 ChatGPT |
+| `--ai` | AI 來源：`claude-code`、`openai`，或 `模組路徑:類別名稱`。沒給的話依序看 `AI_DEMO_ENGINE`、正在用的摘要器（`simple` 除外），最後才是 `claude-code`。所以 bot 啟動時加 `--summarizer openai`，`/ai` 也會跟著改用 ChatGPT |
 | `--db` | 資料庫，預設是根目錄 `.env` 的 `BOT_DB`，沒填就是 `data/messages.sqlite3` |
 | `--json` | 印出原始結果，欄位名稱照 spec |
 | `--bot` | 給 voice_bot 呼叫：只印一行 `RESULT {json}`，Discord ID 用字串（數字太長，JavaScript 放不下） |
@@ -91,17 +91,15 @@ voice_bot/voice_stt/.venv/Scripts/python.exe -m ai_demo ask <會議ID> "誰負�
 - 只根據那一場會議的內容回答，並附上依據的句子。
 - 找不到答案、或答案對不上任何一句時，回傳 spec 的 `NOT_FOUND`。
 
-**用 Demo_Script 試的結果**（30 句，A 是組長，Claude Code 約 30 秒）：正式任務 0 項、待確認提案 12 項。原因是劇本裡的分工大多沒有講期限；「C 下週五前完成第一份小考」雖然有期限，但這句是 C 自己說的，不是組長指派。這和 spec 問題 D2 的預期一致。
+可用 [Demo 劇本](../Demo_Script.md)的假資料檢查候選與正式任務的差異。產生資料的方式見 [AI 團隊接手指南](../docs/ai_team_guide.md#1-準備環境與假資料)。
 
 ## 和正式版的差別（AI 組要補的）
 
 | 這裡 | 正式版要做 |
 |---|---|
-| 直接讀資料庫 | 透過讀取介面，先確認提問的人看得到來源頻道（R15） |
-| 沒檢查負責人能不能讀這個頻道 | 負責人沒有權限時，`activation_state` 要是 `awaiting_leader_decision`（R18） |
-| 結果印在終端機，或只回給下 `/ai` 的人 | 用私訊或原頻道發布，發送前再驗一次權限（R10、R16） |
-| 提案不會存起來 | 存成 `PendingAction`，等組長確認後才建立任務（ConfirmationPolicy） |
-| 文字會議沒存原文時，用摘要的項目代替 | 有開文字記錄就讀原文 |
+| 終端機透過 `SQLiteStore` 讀取假資料 | Discord 使用者的查詢依[授權讀取介面](../docs/ai_memory_api.md)處理 |
+| 確認追蹤後詢問一次進度 | 正式版需有排程、取消和改期流程 |
+| 候選只保留在當次結果 | 需保存 `PendingAction`，讓組長確認後再建立任務 |
 
 ## 測試
 
