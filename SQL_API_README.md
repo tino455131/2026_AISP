@@ -24,7 +24,7 @@ with TemporaryDirectory() as directory:
         message_id=101,
         guild_id=20,
         channel_id=30,
-        author_id=40,
+        user_id=40,
         content="週五交第一版報告",
         created_at="2026-11-22T03:00:00+00:00",
     )
@@ -42,7 +42,7 @@ with TemporaryDirectory() as directory:
 |---|---|
 | `message_id` | `int`，Discord 訊息 ID。 |
 | `guild_id`、`channel_id` | `int`，伺服器及頻道或討論串 ID。 |
-| `author_id` | `int`，Discord 作者 ID。可透過 Discord 查顯示名稱。 |
+| `user_id` | `int`，訊息作者的 Discord 帳號 ID。用 `store.get_user_name(user_id)` 查最近同步的 username。 |
 | `content` | `str`，目前保存的文字。 |
 | `created_at`、`edited_at` | ISO 8601 UTC 字串。未編輯時 `edited_at` 為 `None`。 |
 
@@ -58,7 +58,7 @@ with TemporaryDirectory() as directory:
 
 以下整理 [`sqlite_api.py`](sqlite_api.py) 的公開介面。表中方法皆由 `store = SQLiteStore(path)` 建立的實例呼叫，路徑工具與建構方式見第一表。
 
-`guild_id`、`channel_id`、`message_id`、`author_id`、`speaker_id` 與 `started_by` 都使用 Discord 整數 ID。`channel_id` 也可傳討論串 ID。`session_id` 是語音錄音的字串 ID，`meeting_id` 是文字會議的字串 ID。時間欄位皆為 ISO 8601 UTC 字串，例如 `2026-11-22T03:00:00+00:00`。標示 `=` 的參數可省略，用方法簽名的預設值。
+`guild_id`、`channel_id`、`message_id`、`user_id`、`speaker_id` 與 `started_by` 都使用 Discord 整數 ID。`channel_id` 也可傳討論串 ID。`session_id` 是語音錄音的字串 ID，`meeting_id` 是文字會議的字串 ID。時間欄位皆為 ISO 8601 UTC 字串，例如 `2026-11-22T03:00:00+00:00`。標示 `=` 的參數可省略，用方法簽名的預設值。
 
 ### 路徑與初始化
 
@@ -68,12 +68,23 @@ with TemporaryDirectory() as directory:
 | `resolve_database_path` | `configured_path: str \| None = None`，可傳 `BOT_DB` 的值 | `Path`。空白或 `None` 使用 `DEFAULT_DB`，相對路徑以專案根目錄為基準。 |
 | `SQLiteStore` | `path: str \| Path`，資料庫檔案路徑。選填關鍵字參數 `read_only: bool = False` | `SQLiteStore` 實例。預設建立必要目錄和資料表。唯讀模式開啟既有資料庫，檔案缺少時拋出 `FileNotFoundError`。 |
 
+### 使用者名稱
+
+| 方法 | 參數 | 回傳與行為 |
+|---|---|---|
+| `get_user_name` | `user_id: int` | `str`，Discord 帳號最近同步的 username。查無資料時回傳空字串 `""`。 |
+| `save_user_names` | `users: Iterable[tuple[int, str]]` | `None`。輸入 `(user_id, user_name)` 對照，同一 ID 會更新。 |
+
+Bot 在登入時同步指定伺服器的成員，新加入成員及偵測到 username 變更時也會更新對照。使用範例為 `user_name = store.get_user_name(row["user_id"])`。username 是帳號名稱，Discord 的顯示名稱和伺服器暱稱是另外的欄位。
+
+舊資料庫在第一次用可寫的 `SQLiteStore` 開啟時，會將 `messages.author_id` 原地改名為 `user_id` 並保留既有值。可寫入程式應一起更新至新版。舊資料庫也可透過唯讀介面讀取，結果欄位統一為 `user_id`。
+
 ### 文字訊息
 
 | 方法 | 參數 | 回傳與行為 |
 |---|---|---|
-| `save_message` | `message_id: int`、`guild_id: int`、`channel_id: int`、`author_id: int`、`content: str`、`created_at: str`，選填關鍵字參數 `edited_at: str \| None = None` | `None`。新增即時訊息。重複送入且省略 `edited_at` 時保留既有版本。帶入 `edited_at` 時，可套用時間相同或更新的編輯。 |
-| `save_historical_message` | `message_id: int`、`guild_id: int`、`channel_id: int`、`author_id: int`、`content: str`、`created_at: str`、`edited_at: str \| None`（必填，未編輯傳 `None`） | `None`。在同一交易匯入文字並更新補匯進度。重複訊息保留既有資料，空文字只推進進度。 |
+| `save_message` | `message_id: int`、`guild_id: int`、`channel_id: int`、`user_id: int`、`content: str`、`created_at: str`，選填關鍵字參數 `edited_at: str \| None = None` | `None`。新增即時訊息。重複送入且省略 `edited_at` 時保留既有版本。帶入 `edited_at` 時，可套用時間相同或更新的編輯。 |
+| `save_historical_message` | `message_id: int`、`guild_id: int`、`channel_id: int`、`user_id: int`、`content: str`、`created_at: str`、`edited_at: str \| None`（必填，未編輯傳 `None`） | `None`。在同一交易匯入文字並更新補匯進度。重複訊息保留既有資料，空文字只推進進度。 |
 | `update_message` | `message_id: int`、`guild_id: int`、`content: str`、`edited_at: str` | `bool`。找到指定訊息即回傳 `True`，包括收到較舊編輯而保留原版本的情況。找不到時回傳 `False`。 |
 | `get_channel_message_list` | `guild_id: int`、`channel_id: int`、`limit: int = 100`（1–1000） | `list[sqlite3.Row]`。取指定頻道最新的非空文字，依建立時間和訊息 ID 由舊到新排序。欄位見[文字讀寫範例](#文字讀寫範例)。無資料時回傳 `[]`。 |
 | `get_last_backfilled_message_id` | `guild_id: int`、`channel_id: int` | `int \| None`。取得該頻道補匯已處理的最大訊息 ID。首次補匯前回傳 `None`。 |

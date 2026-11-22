@@ -61,7 +61,7 @@ async def get_current_channel_history(context: ToolContext, _args: ToolArguments
             break
         messages.append({
             "message_id": str(row["message_id"]),
-            "author_id": str(row["author_id"]),
+            "user_id": str(row["user_id"]),
             "created_at": row["created_at"],
             "content": content[:remaining],
         })

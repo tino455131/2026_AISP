@@ -16,13 +16,18 @@
 ./text_bot/.venv/bin/python text_bot/bot.py
 ```
 
-單獨運行時可用 `/ping` 確認在線。部署時在 Team Bot 的文字記錄和此入口之間選一個，避免兩個程序重複接收同一批事件。
+獨立文字 Bot 暫停註冊斜線指令。可從 Terminal 的登入訊息確認已上線。部署時在 Team Bot 的文字記錄和此入口之間選一個，避免兩個程序重複接收同一批事件。
 
 ## 記錄與同步
 
 - 啟動時會背景匯入歷史。各頻道按保存的進度接續，訊息 ID 用於去重，匯入筆數在 Terminal 顯示。
-- 即時文字訊息寫入後，Terminal 會顯示頻道 ID、作者 ID 與內容。程式也監聽編輯和刪除。部署時請告知成員記錄範圍，並只讓有權限的管理者存取 Terminal 與資料庫。
+- 即時文字訊息寫入後，Terminal 會顯示頻道 ID、使用者 ID 與內容。程式也監聽編輯和刪除。部署時請告知成員記錄範圍，並只讓有權限的管理者存取 Terminal 與資料庫。
+- 即時訊息、歷史匯入和編輯會略過 Bot 帳號與 Webhook 傳送的內容。歷史進度仍會接續，舊的資料庫紀錄會保留。
 - 離線期間的編輯或刪除可能未同步。資料表及查詢方式見[資料庫結構](../docs/database_schema.md)和 [SQLite API](../SQL_API_README.md)。
+
+## 使用者名稱
+
+Bot 登入時會同步指定伺服器的成員 username。成員加入或 Bot 偵測到 username 變更時，會更新 `users` 表。以 `SQLiteStore.get_user_name(user_id)` 取得最近一次保存的名稱，查無資料時回傳空字串。
 
 ## 頻道可見性與安全讀取
 

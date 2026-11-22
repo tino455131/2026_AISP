@@ -25,8 +25,8 @@ macOS／Linux
 ## 2. 了解工具如何取得資料
 
 - 一般問題，例如「解釋 Python 的 async」，直接由 OpenAI 回答。需要目前頻道紀錄時，`/ask` 先呼叫 `get_current_channel_history`，之後模型才可選用其他已登記工具。明確詢問其他頻道時，Bot 會提示查詢範圍。
-- 工具用 `await context.read_history()` 取得目前頻道最近最多 100 則已存文字。伺服器、頻道與提問者來自 Discord interaction，後端確認 Bot 及提問者的權限，再透過 `AuthorizedMessageReader` 讀取 `SQLiteStore`。
-- 自訂工具只需回傳模型回答所需的欄位。下方的計數工具只回傳 `count`。回答含頻道資料時，Bot 會在送出前重新驗權，並只顯示給提問者。
+- 工具用 `await context.read_history()` 取得目前頻道最近最多 100 則已存文字。伺服器、頻道與提問者來自 Discord interaction。OpenAI 以提問者的 Discord `user_id` 與已存訊息的 `user_id` 對照，username 用於稱呼。後端確認 Bot 及提問者的權限，再透過 `AuthorizedMessageReader` 讀取 `SQLiteStore`。
+- 自訂工具只需回傳模型回答所需的欄位。下方的計數工具只回傳 `count`。回答含頻道資料時，Bot 會在送出前重新驗權。全頻道可讀來源時才公開，也可在 `/ask` 開啟 `private:true` 只給提問者看。
 
 開發者可對照 [Discord 授權讀取](ai_memory_api.md)、[SQLite 方法](../SQL_API_README.md)和[資料表結構](database_schema.md)。
 
@@ -64,8 +64,8 @@ TOOLS["count_mentions"] = Tool(
 ```python
     async def test_count_mentions_example(self):
         self.read.return_value = [
-            {"message_id": 1, "author_id": 2, "created_at": "2026-11-22", "content": "報告、報告"},
-            {"message_id": 2, "author_id": 2, "created_at": "2026-11-22", "content": "下週開會"},
+            {"message_id": 1, "user_id": 2, "created_at": "2026-11-22", "content": "報告、報告"},
+            {"message_id": 2, "user_id": 2, "created_at": "2026-11-22", "content": "下週開會"},
         ]
         client = client_with(
             routing("current_channel"),

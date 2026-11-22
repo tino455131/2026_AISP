@@ -9,7 +9,7 @@ Example:
     from sqlite_api import DEFAULT_DB, SQLiteStore
 
     store = SQLiteStore(DEFAULT_DB)
-    store.save_message(message_id, guild_id, channel_id, author_id, text, created_at)
+    store.save_message(message_id, guild_id, channel_id, user_id, text, created_at)
 
 The storage methods do not check a Discord member's permissions. For a
 user-facing read, use AuthorizedMessageReader or AuthorizedTranscriptReader.
@@ -170,7 +170,7 @@ class SQLiteStore:
                     message_id INTEGER PRIMARY KEY,
                     guild_id INTEGER NOT NULL,
                     channel_id INTEGER NOT NULL,
-                    author_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
                     content TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     edited_at TEXT
@@ -264,6 +264,17 @@ class SQLiteStore:
 
             connection.executescript(_DEMO_TRACKING_SCHEMA)
 
+            # Serialize the schema check and rename across bot processes sharing this file.
+            connection.execute("BEGIN IMMEDIATE")
+            if self._message_user_column(connection) == "author_id":
+                connection.execute("ALTER TABLE messages RENAME COLUMN author_id TO user_id")
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS users (
+                    user_id INTEGER PRIMARY KEY,
+                    user_name TEXT NOT NULL
+                )"""
+            )
+
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
         target = f"{self.path.resolve().as_uri()}?mode=ro" if self.read_only else self.path
@@ -274,6 +285,45 @@ class SQLiteStore:
         finally:
             connection.close()
 
+    @staticmethod
+    def _message_user_column(connection: sqlite3.Connection) -> str:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(messages)")}
+        return "author_id" if "author_id" in columns and "user_id" not in columns else "user_id"
+
+    def save_user_names(self, users: Iterable[tuple[int, str]]) -> None:
+        """Insert or update Discord usernames in one transaction.
+
+        Args:
+            users: Pairs of Discord user IDs and their current account usernames.
+
+        Raises:
+            sqlite3.Error: SQLite could not complete the operation.
+        """
+        with self._connection() as connection:
+            connection.executemany(
+                "INSERT INTO users (user_id, user_name) VALUES (?, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET user_name = excluded.user_name",
+                users,
+            )
+
+    def get_user_name(self, user_id: int) -> str:
+        """Look up a stored Discord account username.
+
+        Args:
+            user_id: The Discord account ID.
+
+        Returns:
+            The last synced username or an empty string if it is unknown.
+
+        Raises:
+            sqlite3.Error: SQLite could not complete the lookup.
+        """
+        with self._connection() as connection:
+            if self.read_only and "users" not in self._table_names(connection):
+                return ""
+            row = connection.execute("SELECT user_name FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        return row[0] if row is not None else ""
+
     # Text message operations.
 
     def save_message(
@@ -281,7 +331,7 @@ class SQLiteStore:
         message_id: int,
         guild_id: int,
         channel_id: int,
-        author_id: int,
+        user_id: int,
         content: str,
         created_at: str,
         *,
@@ -293,7 +343,7 @@ class SQLiteStore:
             message_id: Discord message ID.
             guild_id: Discord server ID.
             channel_id: Discord channel or thread ID.
-            author_id: Discord user ID of the author.
+            user_id: Discord user ID of the author.
             content: Text from the Discord message.
             created_at: Creation time as an ISO 8601 string in UTC.
             edited_at: Edit time in ISO 8601 UTC, when saving a text edit.
@@ -306,7 +356,7 @@ class SQLiteStore:
         with self._connection() as connection:
             connection.execute(
                 "INSERT INTO messages "
-                "(message_id, guild_id, channel_id, author_id, content, created_at, edited_at) "
+                "(message_id, guild_id, channel_id, user_id, content, created_at, edited_at) "
                 "SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS "
                 "(SELECT 1 FROM deleted_messages WHERE message_id = ? AND guild_id = ?) "
                 "ON CONFLICT(message_id) DO UPDATE SET "
@@ -314,7 +364,7 @@ class SQLiteStore:
                 "WHERE messages.guild_id = excluded.guild_id AND excluded.edited_at IS NOT NULL "
                 "AND (messages.edited_at IS NULL "
                 "OR julianday(excluded.edited_at) >= julianday(messages.edited_at))",
-                (message_id, guild_id, channel_id, author_id, content, created_at, edited_at, message_id, guild_id),
+                (message_id, guild_id, channel_id, user_id, content, created_at, edited_at, message_id, guild_id),
             )
 
     def update_message(self, message_id: int, guild_id: int, content: str, edited_at: str) -> bool:
@@ -351,7 +401,7 @@ class SQLiteStore:
         message_id: int,
         guild_id: int,
         channel_id: int,
-        author_id: int,
+        user_id: int,
         content: str,
         created_at: str,
         edited_at: str | None,
@@ -362,7 +412,7 @@ class SQLiteStore:
             message_id: Discord message ID.
             guild_id: Discord server ID.
             channel_id: Discord channel or thread ID.
-            author_id: Discord user ID of the author.
+            user_id: Discord user ID of the author.
             content: Message text. Empty text only advances the resume point.
             created_at: Creation time as an ISO 8601 string in UTC.
             edited_at: Edit time as an ISO 8601 string in UTC. Use None for an unedited message.
@@ -374,11 +424,11 @@ class SQLiteStore:
             if content:
                 connection.execute(
                     "INSERT OR IGNORE INTO messages "
-                    "(message_id, guild_id, channel_id, author_id, content, created_at, edited_at) "
+                    "(message_id, guild_id, channel_id, user_id, content, created_at, edited_at) "
                     "SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS "
                     "(SELECT 1 FROM deleted_messages WHERE message_id = ? AND guild_id = ?)",
                     (
-                        message_id, guild_id, channel_id, author_id, content, created_at, edited_at,
+                        message_id, guild_id, channel_id, user_id, content, created_at, edited_at,
                         message_id, guild_id,
                     ),
                 )
@@ -470,9 +520,14 @@ class SQLiteStore:
             raise ValueError("limit must be between 1 and 1000")
         with self._connection() as connection:
             connection.row_factory = sqlite3.Row
+            if self.read_only:
+                connection.execute("BEGIN")
+                user_column = self._message_user_column(connection)
+            else:
+                user_column = "user_id"
             return connection.execute(
                 "SELECT * FROM ("
-                "SELECT message_id, guild_id, channel_id, author_id, content, created_at, edited_at "
+                f"SELECT message_id, guild_id, channel_id, {user_column} AS user_id, content, created_at, edited_at "
                 "FROM messages WHERE guild_id = ? AND channel_id = ? AND content <> '' "
                 "ORDER BY created_at DESC, message_id DESC LIMIT ?"
                 ") ORDER BY created_at ASC, message_id ASC",
@@ -752,8 +807,9 @@ class SQLiteStore:
                 return None
             rows = []
             if include_saved_messages and "messages" in tables:
+                user_column = self._message_user_column(connection) if self.read_only else "user_id"
                 rows = connection.execute(
-                    """SELECT message_id, author_id, created_at, content FROM messages
+                    f"""SELECT message_id, {user_column} AS user_id, created_at, content FROM messages
                        WHERE guild_id = ? AND channel_id = ? AND message_id > ? AND message_id < ?
                        ORDER BY message_id""",
                     (record["guild_id"], record["channel_id"], record["start_message_id"], record["end_message_id"]),

@@ -39,19 +39,27 @@ class ChannelAskTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_open_questions_use_the_first_answer_without_exposing_tools_or_history(self):
         client = client_with(routing("general", "async 用於定義非同步函式"))
-        result = await ask_channel.ask_question(client, "fake", "解釋 Python 的 async", self.context)
+        result = await ask_channel.ask_question(
+            client, "fake", "解釋 Python 的 async", self.context,
+            requester={"user_id": "3", "username": "tester"},
+        )
         self.assertEqual(result, {"ok": True, "text": "async 用於定義非同步函式", "used_channel_history": False})
         self.read.assert_not_awaited()
         client.responses.create.assert_awaited_once()
         self.assertNotIn("tools", client.responses.create.call_args.kwargs)
+        self.assertEqual(json.loads(client.responses.create.call_args.kwargs["input"])["requester"],
+                         {"user_id": "3", "username": "tester"})
 
     async def test_current_channel_forces_a_tool_and_returns_matching_call_id(self):
         self.read.return_value = [
-            {"message_id": 1, "author_id": 3, "created_at": "2026-11-21", "content": "乙" * 4000},
-            {"message_id": 2, "author_id": 3, "created_at": "2026-11-22", "content": "甲" * 9000},
+            {"message_id": 1, "user_id": 9, "created_at": "2026-11-21", "content": "乙" * 4000},
+            {"message_id": 2, "user_id": 3, "created_at": "2026-11-22", "content": "甲" * 9000},
         ]
         client = client_with(routing("current_channel"), tool_call(), reply("我們決定星期五開會"))
-        result = await ask_channel.ask_question(client, "fake", "我們剛才決定了什麼？", self.context)
+        result = await ask_channel.ask_question(
+            client, "fake", "我的 ID 是 9。我剛才說了什麼？", self.context,
+            requester={"user_id": "3", "username": "tester"},
+        )
         self.assertTrue(result["used_channel_history"])
         self.assertEqual(result["text"], "我們決定星期五開會")
         self.read.assert_awaited_once()
@@ -61,6 +69,10 @@ class ChannelAskTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(output["call_id"], "call_123")
         messages = json.loads(output["output"])
         self.assertEqual([row["message_id"] for row in messages["messages"]], ["1", "2"])
+        requester = json.loads(forced["input"][0]["content"])["requester"]
+        self.assertEqual(requester, {"user_id": "3", "username": "tester"})
+        self.assertIn("user_id", forced["instructions"])
+        self.assertEqual([row["message_id"] for row in messages["messages"] if row["user_id"] == requester["user_id"]], ["2"])
         self.assertEqual([len(row["content"]) for row in messages["messages"]], [3000, 9000])
         self.assertTrue(messages["truncated"])
 
@@ -87,7 +99,7 @@ class ChannelAskTests(unittest.IsolatedAsyncioTestCase):
         self.read.assert_not_awaited()
 
     async def test_tool_execution_and_deadline_are_bounded(self):
-        self.read.return_value = [{"message_id": 1, "author_id": 2, "created_at": "2026-11-22", "content": "測試"}]
+        self.read.return_value = [{"message_id": 1, "user_id": 2, "created_at": "2026-11-22", "content": "測試"}]
         client = client_with(routing("current_channel"), *(tool_call(call_id=f"call_{i}") for i in range(4)))
         result = await ask_channel.ask_question(client, "fake", "摘要", self.context)
         self.assertEqual(result, {"ok": False, "error_code": "UPSTREAM_UNAVAILABLE"})

@@ -139,7 +139,7 @@
             <text class="box-sub" x="64" y="216">歷史匯入、即時同步</text>
             <rect x="44" y="254" width="281" height="112" rx="16" fill="#e6f7f4" stroke="#0d9488" stroke-width="2"/>
             <text class="box-title" x="64" y="294">語音 Bot</text>
-            <text class="box-sub" x="64" y="322">/record、/meeting、/ask 等指令</text>
+            <text class="box-sub" x="64" y="322">/help、/ask</text>
             <text class="box-sub" x="64" y="344">Node.js · 錄音及呼叫 Python</text>
             <rect x="430" y="176" width="263" height="132" rx="16" fill="#f2ebff" stroke="#7c3aed" stroke-width="2"/>
             <text class="box-title" x="451" y="216">SQL</text>
@@ -152,7 +152,7 @@
             <text class="box-sub" x="838" y="295">組長確認後可做一次進度詢問</text>
           </svg>
         </figure>
-        <p class="overview-caption">也可以分開啟動兩個 Bot。單獨的文字 Bot 使用 <code>TEXT_BOT_TOKEN</code>，提供文字記錄與 <code>/ping</code>。單獨啟動 Node.js 仍可使用 <code>/meeting</code>，會議發言由 Discord 即時讀取。<a href="../team_bot/README.md">Bot 操作與已知限制</a></p>
+        <p class="overview-caption">也可以分開啟動兩個 Bot。單獨的文字 Bot 使用 <code>TEXT_BOT_TOKEN</code> 進行文字記錄。目前 Discord 啟用 <code>/help</code> 與 <code>/ask</code>，下方保留暫停功能的資料流。<a href="../team_bot/README.md">Bot 操作與已知限制</a></p>
       </section>
 
       <section class="panel system sql" id="sql" aria-labelledby="sql-title">
@@ -161,6 +161,7 @@
         <dl class="layers">
           <div><dt>聊天</dt><dd><code>messages</code>、<code>backfill_state</code>、<code>deleted_messages</code> 記錄文字和匯入進度。</dd></div>
           <div><dt>語音會議</dt><dd><code>voice_sessions</code>、<code>voice_lines</code>、<code>voice_session_summaries</code> 保存錄音資訊、逐字稿與摘要。</dd></div>
+          <div><dt>使用者名稱</dt><dd><code>users</code> 保存 <code>user_id</code> 與 Discord 帳號 username 的對照。文字 Bot 登入、成員加入及名稱變更時同步。</dd></div>
           <div><dt>文字會議</dt><dd><code>text_meetings</code> 保存起訖訊息 ID、摘要和引用。獨立的文字記錄程序會將一般聊天寫入 <code>messages</code>。</dd></div>
           <div><dt>測試追蹤</dt><dd><code>demo_tasks</code>、<code>demo_inquiries</code>、<code>demo_progress_updates</code> 保存確認、送達與進度狀態。<code>ai_demo</code> 透過 <code>SQLiteStore</code> 新增任務、記錄詢問與回報進度。</dd></div>
         </dl>
@@ -173,7 +174,7 @@
         <h3 class="flow-label">Python 文字記錄</h3>
         <ol class="flow">
           <li><strong>Discord 訊息事件</strong><small>合併版的文字記錄程序接收指定伺服器的訊息事件。</small><a class="file" href="../team_bot/text_logger.py">text_logger.py</a></li>
-          <li><strong>匯入與即時同步</strong><small>Python 啟動時匯入歷史。收到新訊息時寫入 SQLite 並印到 Terminal，也會同步編輯和刪除。</small><a class="file" href="../text_bot/bot.py">bot.py</a></li>
+          <li><strong>匯入與即時同步</strong><small>Python 啟動時匯入歷史。人類文字訊息寫入 SQLite 並印到 Terminal。程式同步編輯和刪除，略過 Bot 與 Webhook 傳送的內容。</small><a class="file" href="../text_bot/bot.py">bot.py</a></li>
           <li class="destination"><strong>SQLite 聊天紀錄</strong><small>依伺服器、頻道與訊息 ID 保存。授權 reader 會先核對使用者的 Discord 權限再讀取。</small><a class="file" href="../text_bot/channel_access.py">channel_access.py</a></li>
         </ol>
         <h3 class="flow-label">Node.js 的 /meeting 指令</h3>
@@ -200,11 +201,11 @@
         <p class="section-intro"><code>meeting_ai</code> 處理兩種會議的摘要。預設 <code>simple</code>，可切換 OpenAI、Claude Code 或自訂實作。<a href="../meeting_ai/README.md">摘要器設定</a></p>
         <ol class="flow">
           <li><strong>選擇一場會議</strong><small>/ai tasks 或 /ai ask 會先檢查來源頻道的存取權。文字會議向 Discord 讀原文，語音會議讀逐字稿。</small><a class="file" href="../voice_bot/src/ai.js">ai.js</a></li>
-          <li><strong>私下回覆</strong><small><code>ask.py</code> 產生回答，<code>tasks.py</code> 產生任務候選。送出前再檢查存取權限。Discord 回傳空原文時，使用已保存的會議摘要。</small><a class="file" href="../ai_demo/ask.py">ask.py</a> <a class="file" href="../ai_demo/tasks.py">tasks.py</a> <a class="file" href="../ai_demo/local_data.py">local_data.py</a></li>
+          <li><strong>依來源授權回覆</strong><small><code>ask.py</code> 產生回答，<code>tasks.py</code> 產生任務候選。送出前再檢查存取權限。Discord 回傳空原文時，使用已保存的會議摘要。</small><a class="file" href="../ai_demo/ask.py">ask.py</a> <a class="file" href="../ai_demo/tasks.py">tasks.py</a> <a class="file" href="../ai_demo/local_data.py">local_data.py</a></li>
           <li class="destination"><strong>測試版進度追蹤</strong><small>組長確認後，符合來源權限的負責人收到一輪私訊。按鈕回報會保存狀態，再私訊有來源權限的組長。</small><a class="file" href="../sqlite_api.py">sqlite_api.py</a></li>
         </ol>
-        <p><code>/ask</code> 一般問題直接交由 OpenAI 回答。需要目前頻道歷史時，<code>get_current_channel_history</code> 透過授權 reader 呼叫 <code>SQLiteStore</code>，回覆只給提問者。 <a href="ai_team_guide.md">AI 工具開發教學</a></p>
-        <p class="note">測試追蹤只發一次詢問。回報的資料可見範圍見 <a href="../team_bot/README.md#已知限制">Team Bot 已知限制</a>。</p>
+        <p><code>/ask</code> 一般問題直接交由 OpenAI 回答。需要目前頻道歷史時，<code>get_current_channel_history</code> 透過授權 reader 呼叫 <code>SQLiteStore</code>，送出前核對可見成員的權限。可設定 <code>private:true</code> 只給提問者看。 <a href="ai_team_guide.md">AI 工具開發教學</a></p>
+        <p class="note">測試追蹤只發一次詢問。回報進度採私人交付。指令用法見 <a href="../team_bot/README.md#指令">Team Bot 使用說明</a>。</p>
       </section>
 
     </main>
