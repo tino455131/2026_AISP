@@ -1,304 +1,287 @@
-# Discord Team AI 功能與系統 spec
+# Discord 團隊協作 Bot 規格
+
+版本：v1.2｜2026-11-21｜狀態：`implementation_paused`
+
+**Index**
+
+- [1. 目的](#1-目的)
+- [2. v1.2 範圍與驗收主流程](#2-v12-範圍與驗收主流程)
+- [3. 角色、名詞與技術命名](#3-角色名詞與技術命名)
+- [4. 已確認的功能需求](#4-已確認的功能需求)
+- [5. 事件與功能規格](#5-事件與功能規格)
+- [6. 工具定義（Function Tools）](#6-工具定義function-tools)
+- [7. 權限、資料與執行規則](#7-權限資料與執行規則)
+- [8. v1.2 驗收案例](#8-v12-驗收案例)
+- [9. 後續版本待討論](#9-後續版本待討論)
+
+## 1. 目的
+
+協作 Bot 支援 Discord 上的團隊合作，將討論決議轉成可追蹤的任務，並向組長彙報進度與阻礙。組長決定工作、主責與期限。
+
+## 2. v1.2 範圍與驗收主流程
+
+第一版限一個 Discord 伺服器、一個團隊及一個指定專案文字頻道。協作 Bot（簡稱 Bot）處理該頻道的會議文字、逐字稿及明確操作，以及團隊成員直接傳給 Bot 的私訊。
+
+語音由既有轉錄 Bot 轉成文字。協作 Bot 不讀取音訊、附件內容、其他頻道或成員之間的私訊。
+
+1. 組長結束一場文字討論，或既有的轉錄 Bot 提供一場語音會議的完整逐字稿。Bot 在專案頻道發布該場討論的紀錄。
+2. 組長確認要做的候選項目，Bot 建立待分配任務。組長指定主責及期限後，Bot 將該筆任務轉為正式任務。
+3. 正式任務成立時，Bot 立即私訊主責。到組長設定的截止前提醒時間，Bot 再私訊主責提醒期限並詢問進度。
+4. 主責向 Bot 回報指定任務的進度，Bot 記錄後立即私訊組長。組長可以查詢最新紀錄，也可以請 Bot 向主責追問。
+
+## 3. 角色、名詞與技術命名
 
-版本：v1.1｜2026-11-20｜範圍：英文識別名稱修訂｜狀態：`implementation_paused`
+| 名詞（English） | 定義與操作權限 |
+| --- | --- |
+| 管理者（Administrator） | 設定 Discord 伺服器、專案頻道、組員名單及一位組長。由可信任的設定介面驗證管理者身分。 |
+| 組長（Team Leader，`TeamLeader`） | 確認團隊偏好、開始或結束文字會議、指定逐字稿、確認候選、正式指派或修改任務、查詢已記錄進度及請 Bot 追問。 |
+| 組員（Team Member，`TeamMember`） | 參與討論、提出工作建議，並回覆與自身任務有關的問題。 |
+| 主責（Task Owner，`TaskOwner`） | 每筆正式任務只有一位主責，以 `owner_user_id` 記錄。主責接收通知、回報該任務進度。組長也可擔任主責。需分別提醒及追蹤時，組長可拆成數筆任務。 |
+| 協作者（Collaborator） | 單筆任務可有多位協作者，以 `collaborators` 記錄。協作者協助工作，主責更新正式進度。同一人可在不同任務擔任主責或協作者。 |
+| 協作 Bot（Discord Bot） | 團隊在 Discord 上互動的應用程式，負責接收訊息及發送通知、私訊與會議紀錄。 |
+| AI 助理（AI Assistant，`AIAssistant`） | Bot 內的模型元件，負責解讀請求、整理會議、提出建議及提出 Tool 呼叫。 |
+| 任務候選（Task Candidate，`TaskCandidate`） | Bot 從討論擷取的工作建議，可附上原文中提及的人選或期限。 |
+| 待分配任務（Unassigned Task） | 組長已確認要做、尚未正式指派的工作紀錄。組長指定一位主責及明確期限後，沿用同一筆紀錄轉為正式任務。 |
+| 正式任務（Task） | 組長已明確指派的工作。至少有工作內容、一位主責、期限、來源和指派依據。 |
+| 函式工具（Function Tool，簡稱 Tool） | AI 助理可呼叫的後端操作。後端驗證身分、輸入和目前狀態，再決定是否執行。 |
 
+### 3.1 技術命名規則
 
+程式識別值使用英文。說明、Discord 訊息及表單標籤使用繁體中文。識別值用來統一用語，類別（Class）、資料表（Table）和 Discord 指令（Command）形式留待實作。
 
-## 目的與範圍
+| 用途 | 格式 | 識別值 |
+| --- | --- | --- |
+| 角色名稱（Role Name）、概念資料類型（Conceptual Data Type）、政策名稱（Policy Name） | `PascalCase` | `TaskOwner`、`TeamSettings`、`SourceAccessPolicy` |
+| 欄位（Field）、角色識別值（Role ID）、事件（Event）、狀態（State）、函式名稱（Function Name） | `snake_case` | `owner_user_id`、`team_leader`、`meeting_ended`、`awaiting_confirmation`、`record_task_progress` |
+| 錯誤代碼（Error Code）、Discord 原生權限（Discord Permission） | `UPPER_SNAKE_CASE` | `ACCESS_DENIED_USER`、`VIEW_CHANNEL` |
 
-協助 `TeamLeader` 將文字會議決議落實為任務，依 `TeamLeader` 設定詢問 `TaskOwner` 進度、提醒待辦，並將有依據的進度與風險回報 `TeamLeader`。主要驗收流程是「文字會議 → 正式任務 → 提醒／詢問 → `TeamMember` 回報 → `TeamLeader` 彙報」。
+## 4. 已確認的功能需求
 
-第一版使用一個 Discord server、一個 team、一位設定好的 `TeamLeader`。所有資料與操作都帶有 `guild_id`、`team_id`，避免將來擴充多 team 時依賴全域單例。team 不等於頻道；同一 team 可以跨多個頻道，但資訊仍按來源隔離。
+| ID | 執行者、輸入與結果 | 詳細規格及代表驗收案例 |
+| --- | --- | --- |
+| R01 | 管理者設定單一專案頻道、團隊成員及組長，Bot 依這個範圍處理操作。 | 5.2、7.1 · AC27、AC35 |
+| R02 | AI 助理透過 OpenAI Responses API 提出函式呼叫，後端驗證並執行。 | 6、7.5 · AC21、AC24 |
+| R03 | Bot 對無明確指令的一般群聊保持安靜。組長可直接私訊 Bot 查詢本專案一筆任務的最新紀錄。 | 5.1、5.6 · AC06、AC36 |
+| R04 | Bot 向組長收集時區和一個截止前提醒時間，組長確認後設定生效。 | 5.2、6 · AC27、AC28 |
+| R05 | 組長結束文字會議，或有可辨識為完整的逐字稿時，Bot 在原專案頻道發布單場紀錄。 | 5.3 · AC01、AC29、AC30 |
+| R06 | 組長本人完整指派時，Bot 直接建立正式任務。Bot 擷取的候選項目經組長確認後先建立待分配任務。 | 5.3、6 · AC01、AC02、AC31、AC45 |
+| R07 | 組長為一筆正式任務指定一位主責及可選的協作者。 | 3、5.3 · AC01、AC31 |
+| R08 | 主責更新進度，組長管理任務異動。正式狀態、逾期與詢問是否收到回覆分開記錄。 | 5.4、7.3 · AC11、AC13、AC38 |
+| R09 | 後端到組長設定的時間觸發一次截止前提醒，任務或設定異動後更新尚待發送的工作。 | 5.2、5.5、7.5 · AC19、AC32 |
+| R10 | Bot 私訊主責指派和詢問，私訊組長彙報。Discord 拒絕私訊時記錄失敗。 | 5.5、7.1、7.5 · AC10、AC32 |
+| R11 | Bot 根據明確的主責回報記錄進度、阻礙和完成，並保留彙報依據。 | 5.4、5.5 · AC11、AC39 |
+| R12 | 主責知道指定任務的回報會提供給組長。Bot 直接彙報可辨識的任務內容，排除私人內容。 | 5.4、7.1 · AC33、AC34、AC39 |
+| R15 | 團隊身分、所選頻道權限與私訊交付權分別驗證。錯誤訊息只揭露接收者可知的資訊。 | 7.1、7.4 · AC21、AC23、AC35、AC41 |
+| R17 | 後端保留必要的任務、來源及異動紀錄。原訊息編輯或刪除不自行改動正式任務。 | 5.4、7.2 · AC18 |
+| R18 | 主責失去專案頻道存取權時，Bot 暫停對他傳送該任務的通知，並提醒仍有權限的組長。 | 7.1 · AC35 |
+| R19 | 組長在私訊中指定任務和問題，Bot 問主責並將可關聯的回答私訊組長。 | 5.6、6 · AC37 |
 
-已確認的輸入是文字。Bot 可以查閱其有權限取得的頻道內容；這不代表每次對話都須呼叫 Claude，也不代表所有內容須永久複製進 database。語音轉錄、附件內容解析與跨 server 協作未列入本次已確認的功能。文字 thread 視為獨立來源，適用相同查詢及摘要規則；private thread 須額外判斷 membership，不能只沿用 parent channel 的可見判定。adapter 須按需取得可讀歷史，不能因 Gateway 未同步某個 archived thread 就把它判定為沒有對話。
+## 5. 事件與功能規格
 
-## 技術命名規則
+### 5.1 事件與啟動條件
 
-會成為 code／database 識別名稱的角色、資料類別、政策、欄位、事件與狀態使用英文。說明、使用者發言與實際顯示的訊息文案保留繁體中文。
+下表使用內部事件識別值。操作身分、頻道和訊息來源由後端從可信任的事件取得。
 
-| 用途 | 格式 | 範例 |
-|---|---|---|
-| 類別／資料型別／政策類別 | `PascalCase` | `Task`、`TaskOwner`、`SourceAccessPolicy` |
-| 欄位／角色識別值／事件／狀態 | `snake_case` | `owner_user_id`、`team_leader`、`meeting_ended`、`awaiting_confirmation` |
-| 錯誤代碼／Discord 原生權限 | `UPPER_SNAKE_CASE` | `ACCESS_DENIED_USER`、`VIEW_CHANNEL` |
+| 事件 | 觸發條件 | 後續行為 |
+| --- | --- | --- |
+| `member_message` | 組員在專案頻道發出一般訊息 | 可作為有效會議區間內的輸入。沒有操作請求時，Bot 不即時回覆。 |
+| `bot_mentioned`、`command_invoked` | 團隊成員標註 Bot，或提交明確指令 | 辨識請求的操作及適用位置，按操作者身分和權限處理。 |
+| `direct_message_received` | 團隊成員直接私訊 Bot | 依訊息用途處理組長操作、指定任務的回報或詢問答覆。一般私聊留在原對話。 |
+| `meeting_started`、`meeting_ended` | 組長在專案頻道明確開始或結束文字會議 | 記錄訊息邊界。結束後整理同一個頻道內該場會議的內容。 |
+| `transcript_ready` | 既有的轉錄 Bot 交付可辨識為完整的逐字稿，或組長指定一份逐字稿 | 同一場會議只整理一次。無法辨識完整稿時等待組長指定。 |
+| `confirmation_received` | 組長確認設定草稿或所選任務候選 | 驗證操作者、內容及版本，只套用這次確認的內容。 |
+| `scheduled_job_due` | 已保存的截止前提醒到點 | 到點啟動提醒，發送前重新驗證，見第 5.5 節。 |
+| `bot_message` | 協作 Bot 自己發出的訊息 | 不啟動下一輪回答或會議整理。 |
 
-類別名稱與識別值用來統一規格用語，不代表已建立同名 class、database table 或新的角色階層。既有英文欄位與 enum 值維持原名；API 平台替換另行討論。
+### 5.2 初始化與設定
 
-## 角色與權責
+管理者指定伺服器、專案頻道、組長及組員。後端驗證後，Bot 私訊組長取得以下設定。
+
+| 設定欄位 | 第一版的輸入與驗證 |
+| --- | --- |
+| `timezone` | 可辨識的 IANA 時區，用於解析日期、安排排程及顯示時間。時區有歧義時請組長補充。 |
+| `remind_before_minutes` | 一個非負的截止前分鐘數。組長以自然語言說明偏好時，Bot 顯示換算結果供確認。 |
 
-| English name | 中文含義 | 識別值 | 可執行的業務行為 |
-|---|---|---|---|
-| `Administrator` | 管理者 | `administrator` | 明確設定 server 對應的 team 與 `TeamLeader`；身分由 Bot 的可信任設定介面驗證 |
-| `TeamLeader` | 組長 | `team_leader` | 確認設定、開始／結束會議、正式分配或修改任務、取消／重開任務、確認代為轉達內容與對象 |
-| `TeamMember` | 組員 | `team_member` | 依來源權限參與對話與查詢、提出建議；不因此取得正式指派或異動權限 |
-| `TaskOwner` | 主要負責人／主責 | `task_owner` | 回報自己的任務進度、阻礙與完成狀態；確認允許分享的進度版本 |
-| `Collaborator` | 協作者 | `collaborator` | 被列在任務中；不因此取得代 `TaskOwner` 正式回報的權限 |
-| `AIAssistant` | AI 助理 | `ai_assistant` | 整理、抽取、追問、產生提案、依排程提醒與彙報；沒有自行提升資訊權限或修改 Discord 權限的權力 |
-| `Scheduler` | 排程系統 | `scheduler` | 依已確認設定建立有限目的的工作，不視為擁有 `TeamLeader` 全部權限的使用者 |
+Bot 請組長釐清含糊值並確認設定草稿。建立或修改均須確認後才生效。後端記錄 `confirmed_by`、`version`、`effective_at`，再重算未發送且有效的提醒。
 
-`TaskOwner` 與 `Collaborator` 是相對於單項 `Task` 的關係，分別由 `owner_user_id` 與 `collaborators` 表達，不是對所有任務生效的全域角色。同一人可以同時是 `TeamLeader` 與某項任務的 `TaskOwner`。`AIAssistant`、`Scheduler` 是系統 principal，不當成人類成員角色。正文中的 AI 指 `AIAssistant`。
+### 5.3 會議與任務建立
 
-`TeamLeader` 是應用程式業務身分，不會額外授予來源頻道讀取權。Discord role 名稱也不能取代有效頻道權限檢查。Discord 的角色與頻道 overwrites 共同影響權限。[Discord Permissions](https://docs.discord.com/developers/topics/permissions)
+1. **取得會議輸入。** 文字會議限組長在同一專案頻道明確開始和結束的訊息區間。語音會議由既有轉錄 Bot 交付可辨識為完整的逐字稿，或由組長指定要整理的逐字稿。完整稿的識別方式依實際轉錄 Bot 整合時驗證。重送或重試同一場會議時沿用整理結果。
+2. **組長在文字會議中直接指派。** 如果組長本人明確指定工作、一位可辨識的主責及可唯一解析的期限，Bot 在會議結束後直接建立正式任務，並在會議紀錄列為已指派。組長在會議外的明確指派請求符合相同條件時，Bot 可以直接處理。後端以 Discord 操作者及來源訊息驗證指派。
+3. **Bot 擷取候選項目。** 提議、疑問、取自逐字稿的項目、缺少主責或期限的項目列為候選。逐字稿中的發言者標籤供整理參考。Bot 只可引用討論中已提及的人選或期限，缺漏或有歧義時請組長補充。
+4. **組長確認和分配。** 組長選擇並確認候選的版本，Bot 建立待分配任務。組長指定主責及期限後，後端將同一筆工作轉為正式任務。協作者及成果說明可補充。指定相對期限時，Bot 按已確認時區解析並顯示明確時間，無法唯一解析時詢問組長。
+5. **發布紀錄與通知。** Bot 在專案頻道發布單場紀錄，列出重點、決議、未決事項、已正式指派的任務及仍待確認的候選，並附來源參照。正式任務成立後立即私訊主責。個別任務的權限問題只告知有權處理的組長。
 
-## 已確認的功能需求
+### 5.4 任務狀態、進度與異動
 
-| ID | 規則 | 
-|---|---|
-| R01 | 一個 server／team，保留多 team 擴充 | 
-| R02 | Claude 使用 PTC，自訂工具由後端執行 | 
-| R03 | 群聊只因 @Bot 或明確指令回答；`TeamLeader` 查詢以私訊為主 |
-| R04 | 初始化詢問 `TeamLeader` 習慣，結構化設定經確認後啟用 |
-| R05 | `TeamLeader` 開始／結束文字會議，結束後在原頻道發布紀錄 | 
-| R06 | `TeamLeader` 明確指定工作、`TaskOwner` 與期限時自動建檔；歧義或缺漏先追問 | 
-| R07 | 每項任務一位 `TaskOwner`，可列 `Collaborator` | 
-| R08 | 五種正式狀態；逾期、未回覆另行標記 | 
-| R09 | 設定決定提醒、追問、彙報週期與可發訊息時段 | 
-| R10 | 提醒私訊 `TaskOwner`，進度／風險私訊有來源權限的 `TeamLeader`；私訊失敗記錄未送達 | 
-| R11 | 進度以明確回報為準，不推定完成或編造百分比，風險附依據 | 
-| R12 | 任務進度分享先告知；一般私聊不轉傳，混有私人資訊先確認分享版本 | Q
-| R13 | 有成員新訊息的頻道每日在原處總結，時間由 `TeamLeader` 設定，Bot 訊息不觸發 | 
-| R14 | 一般代為轉達先確認內容與對象，驗權後發送並標示來源是 `TeamLeader` | 
-| R15 | 所有衍生資料沿用來源限制；`TeamLeader` 無例外；無權、Bot 無權及未找到需區分 | 
-| R16 | channel 內跨來源回答先告知改用私訊，再驗權交付 | 
-| R17 | 保存必要專案資料；原聊天編輯／刪除不自動改已成立任務 | 
-| R18 | `TaskOwner` 無來源權限時先提醒 `TeamLeader`，等待決定，不改權限、不轉達、不啟動提醒 | 
+| 正式任務狀態 | 識別值 | 主要變更來源 |
+| --- | --- | --- |
+| 待開始 | `not_started` | 建立或正式指派任務，尚無開始回報 |
+| 進行中 | `in_progress` | 主責明確回報進行中 |
+| 有阻礙 | `blocked` | 主責明確表示某個情況妨礙工作繼續或完成 |
+| 已完成 | `completed` | 主責明確回報該筆任務已完成 |
+| 已取消 | `cancelled` | 組長取消任務 |
 
-## 事件與啟動條件
+待分配是正式指派前的階段。「逾期」指未完成、未取消且超過期限。Bot 已發出詢問而尚未收到回覆時，只能說目前沒有新回報。主責回報的預估完成時間不會改動正式期限。
 
-以下為本系統的事件識別名稱，不取代 Discord SDK 的原生 event 名稱。
+主責可更正尚未結束的任務為待開始、進行中或有阻礙。協作者可參與工作，正式進度由主責更新。主責可以向組長提出修改建議。組長可修改主責和期限、取消，或重新開啟已完成或已取消的任務。重新開啟須明示恢復的狀態與期限。每次正式異動記錄操作者、來源、版本及前後值。原討論訊息編輯或刪除不自行取消、重開或更改已成立的任務。
 
-| `trigger_kind` | 中文情境 | 行為 |
-|---|---|---|
-| `member_message` | 一般成員訊息 | 不自動代答；可記錄每日活動 watermark，或作為已啟動會議的輸入 |
-| `bot_mentioned`／`command_invoked` | @Bot／明確指令 | 建立帶可信任身分的 query／command run |
-| `direct_message_received` | 使用者私訊 Bot | 處理該人的查詢或任務回報；本版 server／team 由既定設定解析 |
-| `meeting_started`／`meeting_ended` | `TeamLeader` 開始／結束會議 | 建立／結束會議範圍，結束事件啟動整理 |
-| `scheduled_job_due` | 排程到點 | 啟動提醒、追問、`TeamLeader` 彙報或每頻道每日摘要 |
-| `confirmation_received` | 真人確認操作 | 只套用被確認的不可變草稿，不重新讓模型改寫後直接執行 |
-| `bot_message` | Bot 自己的訊息 | 不觸發新一輪一般回答或每日活動；避免摘要與提醒反覆觸發 |
+主責可回覆指定任務的提醒，也可私訊 Bot 主動提交進度。Bot 使用可驗證的回覆關聯或明確的任務識別，無法唯一辨識時請主責選擇，選定後才更新。Bot 在回報前告知任務內容會提供給組長。一般任務回報直接寫入並彙報，無需再次確認分享。
 
-使用者在群聊直接問成員「大家進度如何」且未 @Bot 時，Bot 不回答。會議與每日摘要可以讀取該段內容，但不能因此即時代替成員回答。
+Bot 能明確區分私人內容時，只記錄及彙報可分離的任務內容，也不附整則原始私訊。無法區分時，Bot 私訊主責請他只補述任務內容。在補述前不更新進度或轉交組長。已收到但待補述的答覆視為已回覆。一般私聊保留在原對話用途，不寫入團隊紀錄或頻道摘要。
 
-## 初始化與設定
+### 5.5 Bot 通知主責、提醒與彙報組長
 
-`Administrator` 設定 `TeamLeader` 後，AI 私訊 `TeamLeader` 詢問習慣，整理為以下結構。
+- **正式指派後。** Bot 立即私訊主責，列出任務識別、內容、期限及適用的協作者。
+- **截止前。** 後端排程（Scheduler）記錄提醒時間，到點觸發一次提醒。Bot 私訊當時的主責，提醒期限、詢問進度及告知回報用途。任務完成、取消、主責已更換或權限不符時，舊工作不能再送出。
+- **收到有效回報後。** Bot 記錄進度並立即私訊組長，列出任務、回報者、已記錄進度，以及可分享的任務回報依據。Bot 若無法從回報判斷完成、阻礙或百分比，只呈現主責明確提供的資訊。
+- **私訊失敗或主責未回覆。** Bot 記錄送達結果，不改貼公開頻道。Discord 接受訊息後才能判定詢問已發送。主責沒回覆時，進度仍為未知，第一版不自動再問或發送升級通知。
 
-| 欄位 | 說明與驗證 |
-|---|---|
-| `timezone` | IANA timezone；`TeamLeader` 確認後才決定相對日期、排程與畫面時間 |
-| `remind_before_minutes` | 截止前提醒 offsets；非負、去重、排序 |
-| `followup_interval_minutes` | 未回覆後的追問間隔；有追問時必須大於零 |
-| `max_followups` | 每次進度詢問週期最多追問次數；可為零 |
-| `leader_report_mode` | `event`／`scheduled`／`both` |
-| `leader_report_events` | 已勾選的 `blocked`、`overdue`、`no_response`、`progress_updated` 事件；不擅自加入 `TeamLeader` 未選的週期 |
-| `leader_report_schedule` | 若選定期彙報，`kind` 為 `interval`、`daily` 或 `weekly`，並提供對應間隔或當地時間 |
-| `no_response_report_after_minutes` | 選擇未回覆事件彙報時，設定已送達詢問後多久通知 `TeamLeader`；與追問間隔分開 |
-| `daily_summary_time` | 每日摘要的當地時間 |
-| `delivery_windows` | 以 `weekdays`、`start`、`end` 表達當地星期與可發訊息時段；窗口可跨日，須明確解析 |
+### 5.6 組長查詢已記錄進度與指定追問
 
-AI 對模糊回答追問，不能把「不要太常催」直接換成自選數值。選擇 `scheduled`／`both` 時必須有 `leader_report_schedule`；選擇 `no_response` 事件時必須有未回覆門檻。設定顯示為可讀摘要供 `TeamLeader` 確認；確認後記錄版本與生效時間，修改時同樣確認。時間區間衝突或無法送出每日摘要時，先指出衝突，不悄悄覆蓋。
+組長可私訊 Bot，指定一筆本專案任務，取得該任務目前狀態、最近一筆可分享的進度及依據。查詢不發訊息給主責。無新回報時明示目前沒有新資訊。任務無法唯一辨識時先詢問組長。
 
-## 會議與任務建立
+組長若要取得新的資訊，可私訊 Bot 指定任務與要問的問題。Bot 私訊當時的主責，標示問題由組長提出及答覆的分享對象。收到能對應到該詢問的回覆後，Bot 再私訊組長。若答覆亦構成明確進度回報，依第 5.4 節處理，並避免對同一答覆重複彙報。
 
-1. `TeamLeader` 在可讀取的文字來源開始會議，記錄 `channel_id`、開始時間及訊息邊界。會議限同一來源，不自行混合其他頻道或私訊。
-2. `TeamLeader` 結束會議後，按邊界讀取可取得的成員訊息，產生討論摘要、決議與任務候選。
-3. 「@甲 負責登入功能，指定日期時間前完成」且出自 `TeamLeader` 的明確指派，可直接成為正式任務。後端驗證來源作者、`TaskOwner` 身分、時間、必要欄位與對應證據；AI 的 `confirmed=true` 不能取代驗證。
-4. 提議、疑問、否定句、缺少 `TaskOwner` 或期限、同名對象無法辨識，轉為提案並追問。明確的相對日期按已確認 timezone 解析並顯示絕對時間；無法唯一解讀時追問。
-5. `TaskOwner` 若無來源權限，保留任務及指派依據，設定 `activation_state=awaiting_leader_decision`；先向有權限的 `TeamLeader` 說明。等待 `TeamLeader` 調整分配或由人處理權限，AI 不轉達、不啟動提醒。
-6. 在原頻道發布紀錄，分列正式任務與待確認提案。可列出原本已公開的指派；無法啟動的處理提示只先私訊 `TeamLeader`，不在原頻道加入權限／風險評估。公開部分只使用原頻道已有的內容，不帶入私人進度。
+## 6. 工具定義（Function Tools）
 
-任務最少包含工作內容、`TaskOwner`、明確期限、來源及指派依據。`Collaborator` 與成果說明可補充。顯示名稱用於閱讀；實際授權與關聯使用 Discord user ID。
+AI 助理透過 OpenAI Responses API 的函式呼叫（Function Calling）提出函式名稱及輸入參數。後端驗證並執行，將結果回傳給 AI 助理。函式定義包含名稱、用途及以 JSON Schema 描述的參數。操作者、權限、確認及排程身分一律由後端驗證。 [OpenAI Function Calling 文件](https://developers.openai.com/api/docs/guides/function-calling)
 
-## 任務狀態、進度與異動
-
-| `status` | 意義 | 主要變更來源 |
-|---|---|---|
-| `not_started` | 已成立、尚未回報開始 | 建立任務 |
-| `in_progress` | `TaskOwner` 回報進行中 | `TaskOwner` 的共享回報 |
-| `blocked` | `TaskOwner` 明確回報阻礙 | `TaskOwner` 的共享回報 |
-| `completed` | `TaskOwner` 明確回報完成 | `TaskOwner` 的共享回報 |
-| `cancelled` | `TeamLeader` 取消 | `TeamLeader` 明確指令 |
-
-`overdue` 指尚未完成／取消且已超過 `due_at`；歷史上的晚交另由完成紀錄判斷。`awaiting_progress_reply` 由已送達的詢問及回覆關聯判定。兩者均不是正式狀態。`activation_state` 另表達是否可啟動通知，不能用 `blocked` 代替沒有來源權限的情形。
-
-`TaskOwner` 不能修改正式 `TaskOwner`、期限或取消任務；可以提出修改建議。`Collaborator` 不代替 `TaskOwner` 更新正式進度。非 terminal 任務可以由 `TaskOwner` 明確更正為 `not_started`、`in_progress` 或 `blocked`，並保留更正依據。`TeamLeader` 可以修改分配、期限、取消任務，或將已完成／取消任務重新開啟；重新開啟時明示恢復的狀態與期限。每次異動保存操作者、證據、前後值與版本。
-
-「快好了」只記錄原意或追問，不轉成完成 90%。沒有回覆只代表進度未知。訊息關聯不到唯一任務時，先讓 `TaskOwner` 選擇，不更新多筆猜測任務。
-
-私訊詢問須標示：「本次提交的任務進度將分享給有來源權限的組長」。實作以一份可分享的進度草稿供 `TaskOwner` 確認，確認後才寫入團隊進度並啟動彙報。這個確認流程同時處理私人資訊混入回覆的情況；未確認的一般私聊不進團隊查詢或摘要。預估完成時間是回報，不自動改正式 `due_at`。
-
-## 提醒、追問與 `TeamLeader` 彙報
-
-Scheduler 持久化工作；不靠 PTC 容器長期等待。每次工作執行時重新讀取任務、設定版本、來源權限與可發訊息時段。
-
-- 任務已完成／取消、正在等 `TeamLeader` 處理權限，或該次提醒已送出時，不重送。
-- 已送達的詢問才開始計算未回覆時間。訊息送不出去不能被算成「`TaskOwner` 未回覆」。
-- `sent` 指 Discord 已接受訊息並回傳 message ID，不代表收件人已讀；彙報不推定閱讀情形。
-- Bot 收到可關聯至該詢問的 `TaskOwner` 回覆時，立即記錄收到回覆並停止「未回覆」追問；資料不足或等待分享確認時，只能標為 `needs_clarification`／`awaiting_confirmation`，不能說成未回覆，也不能分享未確認內容。
-- 新的共享進度回報使舊詢問週期結束；下一週期依設定產生，不能因同一任務多次 retry 累加追問次數。
-- 不在可送時段時，延後至下一有效窗口，再檢查工作是否仍有效。
-- 期限／`TaskOwner`／設定改動後，舊版本的待送工作失效，依新資料重算；完成後停用尚未發送的工作。
-- `TeamLeader` 回報可包含任務、最新已確認進度、詢問時間、未回覆或阻礙依據與來源。`TeamLeader` 無來源權限的項目不進其彙報，亦不顯示被隱藏項目的數量或標題。
-- 週期彙報支援固定分鐘間隔、每日或每週；interval 以設定生效點作錨點。`no_response` 事件依獨立門檻觸發，不把「追問一次」當成 `TeamLeader` 已同意的升級條件。
-- DM 失敗記錄 `delivery_failed`，不自動轉到公開頻道。Discord 有 `50007 Cannot send messages to this user` 等錯誤，不能把送出要求等同送達。[Discord API error codes](https://docs.discord.com/developers/topics/opcodes-and-status-codes#json-json-error-codes)
-
-停機後可重算仍有效的工作；先前期限提醒已無意義時不補送過時文案，改依當下任務狀態及已確認的彙報規則處理。補跑也受窗口、去重及當下權限限制。這是避免遺漏與重複的工程細化，不新增提醒頻率。
-
-## 每日摘要
-
-每個有新成員訊息的來源獨立處理。以兩個相鄰的排定時間定義 `[window_start, window_end)`，不是從「上次成功發送時間」切分。今天截止後的訊息進入下次區間；Bot／webhook 自動輸出不計入成員對話。
-
-摘要只含同來源的討論、決議、已公開待辦與未解問題，不帶入私人進度或模型跨來源的風險評估。每日摘要不是第二條自動派工入口；一般聊天中出現的任務想法，可被整理，但正式建檔仍走 `TeamLeader` 明確指令或會議流程。
-
-一個頻道無權限或讀取失敗，不阻止其他頻道的摘要。讀取不完整時標記待重試，不以「今日無新訊息」結案。每個 `(team_id, source_id, window_start, window_end)` 只發布一個正式版本；retry 不改變區間。設定改變的生效時間作為一次邊界，後續按新時間計算，不留空隙、不重複覆蓋。
-
-## 查詢、轉達與權限
-
-### 權限政策類別命名
-
-| Policy class | 規格中的責任 |
-|---|---|
-| `RoleAuthorizationPolicy` | 檢查操作是否由合適的 `Administrator`、`TeamLeader`、`TaskOwner` 或合法 job 執行 |
-| `SourceAccessPolicy` | 檢查使用者與 Bot 對全部依據來源的存取權；衍生資料沿用來源限制 |
-| `TaskAssignmentPolicy` | 指派給無來源權限的 `TaskOwner` 時，等待 `TeamLeader` 決定，不修改權限或轉達 |
-| `ProgressSharingPolicy` | 私訊草稿只給本人；確認後的共享版本只提供給既定受眾 |
-| `ConfirmationPolicy` | 檢查確認者、固定 payload、接收對象與版本；模型不能代替真人確認 |
-| `DeliveryPolicy` | 決定合法交付位置，發送前驗權；私訊失敗不轉成公開發送 |
-| `ContextIsolationPolicy` | 依使用者、受眾及來源範圍隔離檢索資料、執行上下文與對話歷史 |
-
-以上是既有規則的英文類別名稱，不指定 class 繼承關係或權限套件。存取判斷 `AccessDecision` 的識別值統一為 `allow`、`deny`、`unknown`；`unknown` 不視為 `allow`。
-
-### 存取與來源標籤
-
-每筆資料附 `team_id`、來源集合與可見範圍。衍生資料採來源限制的交集：接收者必須有權讀取所有依據來源。後端在資料交給 Claude／PTC 之前先篩選，在實際發送前再驗證；system prompt 不是驗權機制。
-
-來源清單由 handler 追蹤，不接受模型任意縮減。未被引用但已進入同一執行上下文的資訊仍可能影響輸出；輸出至少沿用該執行 compartment 的來源限制。channel 摘要只建立單來源 run；不同使用者、不同接收對象或不同權限範圍不共用 PTC 容器及對話歷史。這是本專案的隔離設計。
-
-一般私訊的草稿只能給本人看；`TaskOwner` 確認後產生一筆新的共享進度，指定本人及「有任務來源權限的 `TeamLeader`」為受眾。共享版本不自動授權其他 `TeamMember`。讀過這筆進度的執行上下文不能直接產生公開 channel 摘要。
-
-歷史訊息需考慮有效的 `VIEW_CHANNEL`、`READ_MESSAGE_HISTORY` 與 Bot 內容取得能力；private thread 還需確認 membership 等條件。Discord 的 `MESSAGE_CONTENT` intent 與頻道權限是不同條件，只有 @Bot 的內容例外不足以提供完整會議或每日摘要。[Discord Gateway](https://docs.discord.com/developers/events/gateway#message-content-intent)、[Message resource](https://docs.discord.com/developers/resources/message#get-channel-messages)、[Threads](https://docs.discord.com/developers/topics/threads)
-
-### 交付政策
-
-| `policy_case` | 中文情境 | 處理 |
-|---|---|---|
-| `unaddressed_channel_message` | 一般群聊、無 @Bot／指令 | 不回答 |
-| `same_channel_query` | 頻道提問，只使用同頻道資料 | 可在原處回覆，但仍檢查 Bot 發言權與來源限制 |
-| `cross_source_channel_query` | 頻道提問需要其他來源 | 原處僅說明「將以私訊回答」；對提問者驗權後私訊交付 |
-| `cross_source_direct_query` | 跨來源私訊查詢 | 只檢索該人目前可讀的來源；無權部分不進模型 |
-| `leader_without_source_access` | `TeamLeader` 無來源權限 | 不因 `TeamLeader` 身分提供內容 |
-| `owner_without_source_access` | `TaskOwner` 無來源權限 | 先告知有權限的 `TeamLeader`，等待決定，不轉達 |
-| `source_access_unavailable` | 權限無法確認／來源頻道已刪除 | 暫停該來源的內容交付，記錄待處理，不以歷史快取放行 |
-| `direct_message_delivery_failed` | 私訊失敗 | 記錄 `delivery_failed`，沒有自動公開 fallback |
-
-可分辨時回覆「你沒有權限取得所要求的資訊」「Bot 沒有權限讀取所要求的來源」或「沒有找到符合條件的資料」。不得在錯誤中透露使用者原本不知道的私人頻道名稱、任務標題或隱藏結果數量；無法安全辨別時只說明無法驗證或取得所要求資料。
-
-### 錯誤類別命名
-
-程式以英文 `ErrorCode` 判斷原因，繁體中文 `message` 用於對使用者說明。權限相關錯誤及既有 tool 錯誤統一如下；不得以錯誤文字洩漏不可見內容。
-
-| `ErrorCode` | 中文含義 |
-|---|---|
-| `INVALID_ARGUMENT` | 參數或格式不符 |
-| `ACCESS_DENIED_USER` | 使用者沒有來源存取權 |
-| `SOURCE_UNAVAILABLE_BOT` | Bot 無法讀取要求的來源 |
-| `PERMISSION_UNVERIFIED` | 無法確認目前權限 |
-| `NOT_FOUND` | 在可安全識別的範圍內沒有符合資料 |
-| `ROLE_REQUIRED` | 操作者不具備該操作所需的業務身分 |
-| `CONFIRMATION_REQUIRED` | 所要求執行的版本尚未經真人確認 |
-| `INVALID_EVIDENCE` | 來源參照無效、跨範圍或證據不符 |
-| `VERSION_CONFLICT` | 資源版本已變動 |
-| `STALE_JOB` | 排程工作已失效 |
-| `DESTINATION_NOT_ALLOWED` | 目的地或接收者不符合來源與確認限制 |
-| `RATE_LIMITED` | 上游服務限制呼叫頻率 |
-| `UPSTREAM_UNAVAILABLE` | 上游服務暫時不可用 |
-
-`needs_clarification`、`awaiting_confirmation`、`awaiting_leader_decision` 是業務結果的 `state`，不是上述 `ErrorCode`。例如對無來源權限的 `TaskOwner` 保留指派，是 `awaiting_leader_decision`，不能記成任務已轉達或已啟動。
-
-### 一般代為轉達
-
-只因 `TeamLeader` 明確要求而啟動。AI 整理內容及接收對象，`TeamLeader` 確認該版本後再發送，標示「代組長轉達」。確認內容變動、收件人增加或來源範圍改變時，舊確認失效。`TeamLeader` 確認不能覆蓋接收者的來源限制。
-
-向 channel 轉達私人來源內容時，只有能證明該位置的受眾均符合來源限制才可發送；無法證明就先請 `TeamLeader` 改選合法接收對象。AI 不自行變更收件名單或改成公開公告。
-
-## 概念資料模型
-
-| Entity | 主要欄位與用途 |
-|---|---|
-| `Team` | `id, guild_id, leader_user_id, version`；避免固定全域 `TeamLeader` |
-| `TeamSettings` | `team_id, version, confirmed_by, effective_at` 與排程設定 |
-| `SourceRef` | opaque `id, team_id, channel_id, thread_id?, message_id?, author_id, captured_at, content_digest, evidence_excerpt` |
-| `Meeting` | `id, team_id, source_id, started_at, ended_at, boundary_ids, state, version` |
-| `Task` | `id, team_id, title, description, owner_user_id, collaborators, due_at, status, activation_state, source_refs, version` |
-| `TaskChange` | `task_id, old_version, new_version, actor_id, reason, before, after, source_refs` |
-| `ProgressUpdate` | `task_id, owner_id, status, shared_text, blockers, estimated_completion_at?, confirmed_at, inquiry_id?, source_refs` |
-| `Inquiry` | `id, task_id, owner_id, delivery_id, sent_at, reply_received_at?, shared_progress_id?, state, followup_count, version`；`state` 以 `awaiting_reply`、`reply_received`、`closed` 區分未回覆、已回覆待釐清／確認與結案 |
-| `PendingAction` | `id, kind, immutable_payload, payload_digest, required_confirmer, state, source_refs, base_version, confirmed_at?` |
-| `Artifact` | `id, purpose, content, source_refs, audience_policy, destination_binding, approval_state, version`；所有可交付輸出的依據 |
-| `ScheduledJob` | `id, team_id, kind, task_id?, source_id?, settings_version, task_version?, scheduled_at, state, dedupe_key` |
-| `Delivery`／outbox | `id, artifact_id, destination, state, provider_message_id?, attempts, last_error, dedupe_key` |
-| `AuditEvent` | `request_id, actor/job_id, tool, resource_id, result_code, version, timestamp`；避免把完整私訊寫進 log |
-
-所有時間戳保存為 UTC RFC 3339；畫面按設定 timezone 顯示。每日排程保存 timezone，不以固定 UTC offset 取代。來源與共享進度的限制保存在後端，不能只存在向量資料庫或 prompt 中。
-
-### 既有狀態與類型識別值
-
-| 欄位／用途 | English values |
-|---|---|
-| `Task.status` | `not_started`、`in_progress`、`blocked`、`completed`、`cancelled` |
-| `Task.activation_state` | `active`、`awaiting_leader_decision` |
-| `Inquiry.state` | `awaiting_reply`、`reply_received`、`closed`；`reply_received` 不代表內容已確認分享 |
-| `Delivery.state` | `queued`、`sent`、`delivery_failed`、`delivery_unknown` |
-| `Artifact.purpose` | `summary`、`task_notice`、`leader_report`、`announcement`、`query_answer`、`confirmation_preview` |
-| `ToolResult.data.state` | `needs_clarification`、`awaiting_confirmation`、`awaiting_leader_decision`、`ready`、`queued` |
-
-欄位名稱、狀態與用途識別值用於程式／儲存；「待開始」「已完成」「未送達」等中文只作顯示與說明，不作 enum 值。未在既有流程中定義的執行中間狀態，待恢復規劃後再補，不在本次新增 state machine。
-
-`activation_state` 為 `active` 或 `awaiting_leader_decision`。查驗服務失敗另記工作／交付錯誤，不錯稱 `TaskOwner` 已失去權限。原來源權限恢復後也先呈報 `TeamLeader`，按其決定解除暫停，不讓背景掃描默默執行尚待決定的轉達。
-
-原訊息刪除不自動刪除已成立任務與必要證據；原來源頻道的限制仍保留。一般聊天不長期完整保存，會議期間可有完成整理所需的暫存。未指定固定保存天數；不在文件中編造期限。備份與實際清理政策由部署方案落實。
-
-## PTC 與執行可靠性
-
-PTC 只負責一次工作中的工具組合。後端保留任務、排程、確認草稿與 outbox，不能依賴容器作永久 database。啟動時檢查選定模型是否支援 PTC；詳細 API 執行契約依 [Anthropic PTC 文件](https://platform.claude.com/docs/zh-TW/agents-and-tools/tool-use/programmatic-tool-calling)。
-
-人類確認與訊息送達採持久化流程：工具回傳 `awaiting_confirmation` 或 `queued` 後即結束，不在 tool call 裡等待真人按鈕或長期送達。確認事件到來後開新工作。
-
-有寫入或發送副作用的操作使用 idempotency 與版本檢查。資料庫中的任務／outbox 寫入可用交易保證；外部 Discord 發送若結果不明，不宣稱 exactly-once，記錄 `delivery_unknown` 並先 reconciliation。未查明前不能用不同 key 盲目重送。
-
-## 驗收情境
-
-以下是預定測試案例與 expected，尚未宣稱執行。
-
-| ID | 操作／條件 | Expected |
-|---|---|---|
-| AC01 | `TeamLeader` 明確指定甲與完整期限後結束會議 | 一筆正式任務、來源可追溯、原頻道紀錄；符合設定才啟動提醒 |
-| AC02 | 成員說「要不要讓甲做，下週應該來得及」 | 待確認，不直接建正式任務 |
-| AC03 | 同一會議結束事件或 tool call 重試 | 不重複建相同指派或重複發同一版本紀錄 |
-| AC04 | `TaskOwner` 無來源權限 | 指派等 `TeamLeader` 決定；只先通知有權限的 `TeamLeader`，不轉達、不改權限 |
-| AC05 | `TeamLeader` 與 `TaskOwner` 都無該來源權限 | 兩者均收不到內容；留下受限的內部待處理紀錄 |
-| AC06 | 群聊問進度且未 @Bot | Bot 不代答 |
-| AC07 | @Bot 查到其他有權來源 | 原處只提示改私訊；答案私訊給已驗權提問者 |
-| AC08 | `TeamLeader` 要求無權來源／Bot 無讀取權／查無資料 | 安全可辨識時回覆不同原因，不揭露隱藏內容 |
-| AC09 | 到提醒時間，但在禁發窗口或任務已完成 | 延後有效工作；完成任務不送 |
-| AC10 | DM 發送失敗 | 記錄 delivery_failed，沒有公開 fallback，也不計為已詢問未回覆 |
-| AC11 | `TaskOwner` 回覆「快好了」 | 不自行標記完成或產生百分比 |
-| AC12 | `TaskOwner` 的回覆混有私人內容 | 只向本人顯示分享草稿，確認後才讓 `TeamLeader` 讀到共享版本 |
-| AC13 | `Collaborator` 回報、或 `TaskOwner` 要求改正式期限 | 不直接套用越權異動；可形成給 `TeamLeader` 的提案 |
-| AC14 | 有已送達詢問但沒有回覆 | 依設定追問／彙報，文字明示進度未知及詢問依據 |
-| AC15 | 某頻道只有 Bot 摘要與提醒 | 不產生新的每日摘要 |
-| AC16 | 截止後有新訊息，且本次摘要 retry | 新訊息進下一區間；本次維持原邊界且不重複發布 |
-| AC17 | 摘要時某頻道讀取失敗 | 該頻道待重試，其他可處理頻道正常，不假稱無對話 |
-| AC18 | 編輯／刪除原指派訊息 | 正式任務不自動取消或改期限；保存必要依據及來源限制 |
-| AC19 | `TeamLeader` 改期限或重指派，舊提醒同時執行 | 版本檢查使舊工作失效，不傳給舊 `TaskOwner` |
-| AC20 | 轉達草稿確認後改內容或收件人 | 原確認不能授權新版本 |
-| AC21 | 模型偽造 actor、來源、確認或 job | 後端拒絕；不能透過 PTC 繞過 handler |
-| AC22 | 兩人使用同一 team 但來源權限不同 | 模型上下文、PTC 容器與檢索結果隔離 |
-| AC23 | 權限在產生答案後、送出前被撤銷 | 發送前攔截，不能靠舊快取放行 |
-| AC24 | PTC 逾時後重試已寫入任務／已排入 outbox 的操作 | 回傳原操作結果，不再造成一次業務副作用 |
-| AC25 | `TaskOwner` 已回覆，但待釐清或尚未確認分享草稿 | 停止未回覆計時；不誤報沉默，也不洩漏未確認內容 |
-| AC26 | 可讀 parent channel，但不符合 private thread 存取條件 | 不取得或交付該 thread 內容，也不混入 parent 的摘要 |
-
-## 待實作時決定的技術參數
-
-程式語言、database、Discord SDK、Claude model ID、部署平台、指令命名、handler timeout／retry 上限與頁面大小屬於實作配置。它們未經本次訪談指定，不在此冒充既定選擇。模型須通過 PTC capability 檢查；效能與 API 費用需用實際整合測量，這份 spec 沒有宣稱數值。
+| ID     | 工具      | 工具名稱                     | 必要輸入                                     | 後端驗證與回傳                                      |
+| ------ | ------- | ------------------------ | ---------------------------------------- | -------------------------------------------- |
+| TOOL01 | 提出團隊設定  | `draft_team_settings`    | 組長的偏好訊息、目前設定版本                           | 驗證操作者及欄位，回傳可讀草稿、草稿版本或待補充欄位。                  |
+| TOOL02 | 套用確認的設定 | `apply_team_settings`    | 設定草稿 ID、版本、組長已確認的事件關聯                    | 後端自行驗證確認事件的身分、草稿與基準版本，回傳生效設定、版本和生效時間。        |
+| TOOL03 | 整理會議    | `summarize_meeting`      | 會議識別、專案頻道、文字區間或指定逐字稿                     | 驗證來源與觸發條件，回傳摘要、候選項目及來源參照。                    |
+| TOOL04 | 建立待分配任務 | `create_unassigned_task` | 組長確認的候選項目及版本、來源                          | 驗證組長與原確認，回傳待分配任務識別或已建立的相同結果。                 |
+| TOOL05 | 正式指派任務  | `assign_task`            | 待分配任務識別或組長本人明確指派的來源、工作、主責、期限及選填協作者       | 驗證指派權、完整性、成員資格、存取與版本，回傳任務識別及通知排入狀態。          |
+| TOOL06 | 異動任務    | `update_task`            | 組長請求、任務識別、操作類型（修改、取消或重新開啟）、預期版本及各操作要求的新值 | 驗證組長身分、狀態轉換及版本，回傳異動版本、結果及受影響的排程。             |
+| TOOL07 | 記錄任務進度  | `record_task_progress`   | 主責提交的任務內容、任務識別或回覆關聯                      | 驗證主責身分、內容與可提交狀態，回傳進度識別及彙報排入狀態，或回傳需選擇任務或補述內容。 |
+| TOOL08 | 查詢任務進度  | `get_task_progress`      | 組長請求、任務識別                                | 驗證組長身分、專案範圍及存取，回傳任務狀態、最新可分享進度及依據，或安全的查無資料結果。 |
+| TOOL09 | 向主責追問   | `request_task_followup`  | 組長指定的任務及問題                               | 驗證組長身分及當時的主責，回傳待發送狀態與詢問識別，以供後續答覆關聯。          |
+
+後端依可信任的確認事件處理需真人確認的寫入，並負責排程和 Discord 發送。交付紀錄反映平台是否接受。
+
+## 7. 權限、資料與執行規則
+
+### 7.1 權限與訊息交付
+
+驗證包含三項。**操作權限**決定誰能設定、確認或更新任務。**來源存取權**是在目前 Discord 權限下能否取得這筆資料所依據的原始內容。**交付權限**決定結果可以送到哪個頻道或私訊。第一版只有一個選定的專案頻道，仍須在讀取與實際發送前驗證。
+
+| 政策識別值 | 第一版檢查內容 |
+| --- | --- |
+| `RoleAuthorizationPolicy` | 根據可信任操作者、團隊名單及當時的任務主責，判斷是否可操作。 |
+| `SourceAccessPolicy` | 驗證選定頻道及 Bot 與相關成員的有效存取權，並保留必要的來源參照。 |
+| `TaskAssignmentPolicy` | 驗證主責及協作者為團隊成員，確認主責仍可讀取專案頻道。 |
+| `ProgressSharingPolicy` | 任務回報中可分享的工作內容交付給有權限的組長。一般私聊及私人內容留在原對話。 |
+| `ConfirmationPolicy` | 檢查確認者、候選或設定草稿內容、版本及基準紀錄。只生效已確認的內容。 |
+| `DeliveryPolicy` | 發送前重新驗證收件人、任務版本及目標位置。私訊失敗保持失敗狀態。 |
+| `ContextIsolationPolicy` | 後端按操作者、目的與接收者提供資料。會議摘要的模型上下文只包含該場會議的專案頻道文字。不同使用者或接收對象的私訊內容、檢索結果、對話歷史及模型工作上下文按存取範圍隔離。 |
+
+後端追蹤模型所用的來源，模型無權縮小來源限制。Bot 取得頻道歷史前，確認可讀取頻道、訊息歷史和必要的訊息內容。權限查驗結果使用 `allow`、`deny` 或 `unknown`，無法確認時暫停有關交付。跨頻道授權規則見第 9 節的後續範圍。 [Discord 權限文件](https://docs.discord.com/developers/topics/permissions)
+
+| 情境 | Bot 的行為 |
+| --- | --- |
+| 主責在指派時沒有來源權限，或之後失去權限 | 保留受限的待處理紀錄，暫停傳送任務內容及提醒。只告知仍有權限的組長，等組長調整指派或由人處理權限。權限恢復後由組長決定是否解除暫停。 |
+| 組長無來源存取權 | 阻擋向組長交付受限內容或彙報，不透過錯誤訊息揭露不可見內容。 |
+| 權限無法確認、來源已刪除，或接收者不再符合團隊設定 | 暫停相關交付，記錄原因，等驗證或處理。 |
+| Discord 拒絕私訊 | 記錄交付失敗，保留原交付對象和結果。公開頻道不承接失敗的私訊。 |
+
+### 7.2 概念資料模型
+
+| 概念 | 需要保存的主要資料 |
+| --- | --- |
+| `Team`、`TeamSettings` | 伺服器、專案頻道、組長及成員識別。設定包含時區、提醒時間、版本、確認者和生效時間。 |
+| `SourceRef` | 團隊、頻道、來源類型、訊息或逐字稿識別、作者、擷取時間與必要的證據片段。 |
+| `Meeting`、`TaskCandidate` | 會議邊界或逐字稿來源、處理識別、摘要、候選內容及版本。 |
+| `Task`、`TaskChange` | 任務識別、分配階段、工作內容、主責、協作者、期限、正式狀態、通知是否暫停、來源與版本。異動紀錄包含操作者、操作依據和前後值。 |
+| `ProgressUpdate`、`Inquiry` | 任務、回報者、可分享的進度、明確阻礙、預估完成時間、來源及詢問關聯。詢問保存交付結果、發送與回覆時間及狀態。 |
+| `PendingAction` | 待確認的設定或候選項目、確切內容、版本、確認者和確認時間。 |
+| `Artifact`、`Delivery` | 可交付訊息的用途、內容、來源、允許的受眾及目的地。交付包含狀態、Discord 訊息識別及重試資訊。 |
+| `ScheduledJob`、`AuditEvent` | 工作時間、任務與設定版本、識別重複操作的鍵。稽核保留操作者或工作識別、操作結果及時間。 |
+
+系統保存必要的任務與證據。一般聊天不長期完整保存，稽核不寫入完整私人訊息。時間戳以 UTC RFC 3339 保存，使用已確認的時區顯示。
+
+### 7.3 狀態與類型識別值
+
+| 欄位或用途                            | 第一版識別值                                                                                    |
+| -------------------------------- | ----------------------------------------------------------------------------------------- |
+| 任務通知狀態 `Task.activation_state`   | `active`、`awaiting_leader_decision`。權限查驗服務失敗另記錯誤。                                         |
+| 進度詢問狀態 `Inquiry.state`           | `awaiting_reply`、`reply_received`、`closed`。已回覆與已寫入正式進度分別記錄。                               |
+| 交付狀態 `Delivery.state`            | `queued`、`sent`、`delivery_failed`、`delivery_unknown`                                      |
+| 訊息用途 `Artifact.purpose`          | `summary`、`task_notice`、`leader_report`、`query_answer`、`confirmation_preview`             |
+| Tool 的結果 `ToolResult.data.state` | `needs_clarification`、`awaiting_confirmation`、`awaiting_leader_decision`、`ready`、`queued` |
+
+待分配階段與正式任務狀態 `Task.status`（第 5.4 節）分開表達。啟用狀態、詢問狀態與交付狀態各自回答不同問題，彼此不覆蓋。一般公告的 `announcement` 訊息用途屬於後續功能。
+
+### 7.4 錯誤代碼與處理方式
+
+| 錯誤代碼 | 處理方式 |
+| --- | --- |
+| `INVALID_ARGUMENT` | 說明欄位或輸入格式需要修正。 |
+| `ROLE_REQUIRED`、`ACCESS_DENIED_USER` | 說明操作不符合角色要求或目前無權存取，避免透露不可見的標題、名稱或數量。 |
+| `SOURCE_UNAVAILABLE_BOT`、`PERMISSION_UNVERIFIED`、`NOT_FOUND` | 在可安全區分時，分別說明 Bot 無法取得來源、目前權限無法確認，或可查範圍內沒有資料。 |
+| `CONFIRMATION_REQUIRED`、`INVALID_EVIDENCE` | 請有權的人確認目前版本，或補足有效來源。 |
+| `VERSION_CONFLICT`、`STALE_JOB` | 停止版本不符的操作或提醒，依目前資料重新處理。 |
+| `DESTINATION_NOT_ALLOWED` | 停止傳送至不符合政策的收件人或位置。 |
+| `RATE_LIMITED`、`UPSTREAM_UNAVAILABLE` | 記錄上游服務狀態，依後端重試規則處理。 |
+
+待釐清、待真人確認及待組長處理是業務結果，讓呼叫端知道下一步該等什麼。錯誤代碼則說明請求無法完成的原因。
+
+### 7.5 排程與訊息交付可靠性
+
+後端保存任務、確認草稿、排程及待發送訊息清單（Outbox）。Tool 回傳待確認或已排入佇列後結束當前工作，待真人確認時由新事件繼續。
+
+- 後端為有寫入或發送效果的操作保存去重鍵及版本。重送會議、設定或任務確認、有效回報或排程時，沿用既有結果。任務異動及其待發送通知以交易保持一致。
+- 後端執行提醒前重新讀取任務版本、設定版本、當時的主責及存取權。任務完成、取消、重分配或使用新版設定時，舊工作失效。停機後只補算仍有效的提醒。
+- Discord 接受訊息並回傳訊息識別後，記為 `sent`。這代表平台已接受，使用者是否閱讀仍未知。發送錯誤記為 `delivery_failed`。結果不明時記為 `delivery_unknown`，先查明是否已發送，再決定是否以同一操作重試。
+- 測試以 Discord 可觀察的操作結果為主。重送、權限變更及逾時在後端整合測試以相同的事件入口注入，驗證實際建立的紀錄和交付結果。
+- 程式語言、資料庫、Discord SDK、OpenAI 模型版本、部署方式、指令命名、逾時及重試上限留待實作。轉錄 Bot 的完整稿訊號在整合時驗證，無法可靠辨識時使用組長指定流程。
+
+## 8. v1.2 驗收案例
+
+前置條件：團隊成員可存取專案頻道及接收 Bot 私訊。案例依 ID 排列，目前尚未執行。
+
+| ID | 操作或條件 | 預期結果 |
+| --- | --- | --- |
+| AC01 | 組長本人在文字會議中完整指定工作、期限及主責後結束會議。 | 建立一筆正式任務，在原專案頻道的會議紀錄列為已指派，並私訊主責。 |
+| AC02 | 組員在會議中提議讓某人負責，期限含糊。 | Bot 列出候選並請組長確認或釐清。候選尚未成為正式任務。 |
+| AC03 | 重送相同的會議結束事件或重試對應的 Tool。 | 同一場會議只有一份正式紀錄，同一筆指派不重複建檔。 |
+| AC06 | 組員在一般群聊詢問其他人，沒有標註 Bot 或提交指令。 | Bot 不即時代答。 |
+| AC10 | Discord 拒絕發送主責的私訊。 | 紀錄為 `delivery_failed`，不改發公開訊息，也不計為已詢問未回覆。 |
+| AC11 | 主責只說快好了。 | Bot 保留原意，不自行標記完成或編造百分比。 |
+| AC13 | 協作者代主責回報，或主責要求直接改正式期限。 | Bot 不直接更新正式狀態或期限。主責可向組長提出修改建議。 |
+| AC18 | 編輯或刪除原指派訊息。 | 已成立任務的期限與狀態不自動改變，保存必要的來源和異動依據。 |
+| AC19 | 組長重分配或更改期限時，舊提醒同時執行。 | 原工作版本失效，Bot 不發送給舊主責。 |
+| AC21 | 模型偽造操作者、來源、確認或排程身分。 | 後端拒絕，不執行任務寫入或訊息交付。 |
+| AC23 | 輸出產生後、實際發送前，收件人的權限被撤銷。 | 發送前檢查攔截，不依賴舊權限快取。 |
+| AC24 | Tool 呼叫逾時，後端已完成任務寫入或通知入列，之後重試。 | 回傳同一操作結果，無第二筆任務或通知。 |
+| AC27 | 管理者設定團隊。組長補齊時區、提醒時間並確認。 | Bot 顯示設定摘要，完成確認後才啟用設定。 |
+| AC28 | 組長提出模糊設定，或修改已生效的提醒時間。 | Bot 要求補充。新版確認前沿用舊設定，確認後才更新生效時間及尚待發送的提醒。 |
+| AC29 | 轉錄 Bot 發布可辨識為完整的逐字稿並重送，逐字稿內提到可能的主責及期限。 | Bot 發布一份會議紀錄。逐字稿擷取項目列為候選，等待組長確認。 |
+| AC30 | 逐字稿不完整或來源無法唯一判斷，組長稍後明確指定有效逐字稿。 | 指定前等候，指定後整理該場會議。 |
+| AC31 | 組長確認候選，再指定主責與明確期限。 | 先建立一筆待分配任務。分配後同一筆轉為正式任務，Bot 立即私訊主責。 |
+| AC32 | 到截止前提醒時間，分別測試有效、已完成和已取消的任務。 | 有效任務只收到一次提醒與進度詢問。已完成或已取消的任務不發送。 |
+| AC33 | 一則明確進度回報同時含有可分辨的私人內容。 | Bot 只記錄及彙報任務部分，不附整則私訊。 |
+| AC34 | 一則私訊混有無法與任務內容安全分開的資訊。 | Bot 請主責補述，標記已收到回覆。補述前不更新正式進度或轉交組長。 |
+| AC35 | 主責在指派後失去專案頻道權限，組長仍有權限。 | 暫停向主責傳送任務內容及提醒，只讓有權限的組長收到處理提示。 |
+| AC36 | 組長私訊 Bot 查詢一筆已有回報的任務。 | Bot 回傳已記錄的最新進度及依據，不向主責發出新詢問。 |
+| AC37 | 組長指定任務及問題，主責回覆。 | Bot 只私訊當時的主責，收到可關聯答覆後私訊組長。 |
+| AC38 | 組長取消任務再重新開啟，指定恢復狀態及新期限。 | 後端記錄操作者、版本及前後值，依最新狀態與期限安排有效提醒。 |
+| AC39 | 主責一人有多筆任務，先直接回覆其中一筆，再另傳一則無法辨識任務的進度訊息。 | 第一則更新關聯任務並立即私訊組長。第二則先請主責選擇。 |
+| AC40 | 組長確認候選後，候選內容或基準版本改變。 | 舊確認只能套用原先確認的版本，Bot 請組長確認新版。 |
+| AC41 | 組長查詢時分別遇到無權、Bot 無法讀取或可查範圍無資料。 | 在安全可區分時回覆相應原因，避免透露不可見的來源及任務資訊。 |
+| AC42 | 同一團隊不同組員私訊 Bot，其中一人提供私人資訊。 | 其他組員和公開會議摘要無法讀到該私訊。組長只收到符合任務回報條件的內容。 |
+| AC43 | 已正常發出第一則進度詢問，主責未回覆。 | 保留尚未收到回覆的事實，Bot 不自動再問、不發升級通知、不推定有阻礙。 |
+| AC44 | 成員直接私訊 Bot 聊與任務無關的內容。 | Bot 可以在同一個私訊內處理，不寫入任務進度或用於其他人的查詢及彙報。 |
+| AC45 | 組長在會議外本人下達完整指派。 | Bot 不等待會議結束或候選確認，直接建檔並私訊主責。 |
+
+## 9. 後續版本待討論
+
+| 主題 | 待確認的範圍 |
+| --- | --- |
+| 每日頻道摘要（R13） | 每天由 Bot 按指定時間整理一般討論，涵蓋時段切分及處理失敗時的重試。第一版只整理已指定的會議。 |
+| 一般公告代發（R14） | 組長確認公告文字與收件人後由 Bot 代發。需定義目的地、修改後重新確認及交付權限。 |
+| 多專案頻道、討論串及跨來源查詢（R16） | 定義可納入的來源、私人討論串成員資格、多來源權限交集與跨頻道答案的交付位置。 |
+| 主責未回覆後的自動追問與升級 | 設定何時再問、最多問幾次，以及未回覆多久才通知組長。 |
+| 更多排程設定 | 多組截止前提醒、固定週期彙報、事件彙報選項及可發訊息時段。 |
+| 主責推薦 | 先定義工作量與專長資料的來源，再確認 Bot 如何推薦。 |
