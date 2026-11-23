@@ -16,6 +16,8 @@ import {
 import { runIngest, runShow, runSummary } from './ingest.js';
 import { RecordingSession } from './recorder.js';
 
+import { deliverResult, readSourceAccess, replyFlags } from './replies.js';
+
 export const recordCommand = new SlashCommandBuilder()
   .setName('record')
   .setDescription('會議錄音：只錄有按「同意」的人，結束後轉成逐字稿')
@@ -114,12 +116,12 @@ export class RecordController {
     this.closing = false;
   }
 
-  async handle(interaction) {
-    if (interaction.isChatInputCommand() && interaction.commandName === 'record') {
-      const sub = interaction.options.getSubcommand();
-      if (sub === 'start') return this.#start(interaction);
-      if (sub === 'stop') return this.#stop(interaction);
-      if (sub === 'status') return this.#status(interaction);
+  async handle(interaction, { options = interaction.options, privateReply = false } = {}) {
+    if (interaction.isChatInputCommand() && (interaction.commandName === 'record' || privateReply)) {
+      const sub = options.getSubcommand();
+      if (sub === 'start') return this.#start(interaction, privateReply);
+      if (sub === 'stop') return this.#stop(interaction, privateReply);
+      if (sub === 'status') return this.#status(interaction, privateReply);
     }
     if (interaction.isButton()) {
       const consent = parseConsentId(interaction.customId);
@@ -129,7 +131,7 @@ export class RecordController {
     }
   }
 
-  async #start(interaction) {
+  async #start(interaction, privateReply) {
     const member = interaction.member;
     const channel = member?.voice?.channel;
     if (!channel) return interaction.reply({ content: '請先進入要錄音的語音頻道，再下這個指令。', ...ephemeral });
@@ -140,14 +142,14 @@ export class RecordController {
       return interaction.reply({ content: '這個伺服器已經在錄音了，請先 /record stop。', ...ephemeral });
     }
 
-    await interaction.deferReply(ephemeral); // joining can take longer than Discord's 3 seconds
+    await interaction.deferReply(replyFlags(privateReply)); // joining can take longer than Discord's 3 seconds
     let session;
     try {
       session = await this.#begin(channel, member.id);
     } catch (error) {
-      return interaction.editReply(`開始錄音失敗：${error.message}`);
+      return interaction.editReply('開始錄音失敗，請稍後再試。');
     }
-    return interaction.editReply(`已開始錄音（${session.sessionId}）。結束時請用 /record stop。`);
+    return interaction.editReply('已開始錄音。結束時請用 /record stop。');
   }
 
   /** Join `channel` and start recording. `startedBy` is null when it started automatically. */
@@ -230,28 +232,32 @@ export class RecordController {
     );
   }
 
-  async #stop(interaction) {
+  async #stop(interaction, privateReply) {
     if (!isLeader(interaction.member, this.config.leaderRoleId)) {
       return interaction.reply({ content: '只有組長可以停止錄音。', ...ephemeral });
     }
     if (!this.sessions.has(interaction.guildId)) {
       return interaction.reply({ content: '目前沒有在錄音。', ...ephemeral });
     }
-    await interaction.deferReply(ephemeral);
+    await interaction.deferReply(replyFlags(privateReply));
     // Stopped by hand: don't start again in this channel until everyone has left it.
     this.suppressed.add(this.sessions.get(interaction.guildId).channel.id);
     await this.#finish(interaction.guildId, `⏹ <@${interaction.user.id}> 停止了錄音。`);
     return interaction.editReply('已停止錄音，正在轉成文字。語音頻道聊天室裡那則訊息會隨進度更新（靜音，不會吵到大家）。');
   }
 
-  async #status(interaction) {
+  async #status(interaction, privateReply) {
     const session = this.sessions.get(interaction.guildId);
-    if (!session) return interaction.reply({ content: '目前沒有在錄音。', ...ephemeral });
+    if (!session) return interaction.reply({ content: '目前沒有在錄音。', ...replyFlags(privateReply) });
+    await interaction.deferReply(ephemeral);
     const minutes = Math.floor((Date.now() - session.startedAt.getTime()) / 60000);
     const recorded = session.consent.recordedUsers().map((id) => `<@${id}>`).join('、') || '（目前沒有）';
-    return interaction.reply({
+    return deliverResult(interaction, {
       content: `🔴 錄音中：<#${session.channel.id}>，已 ${minutes} 分鐘，${session.manifest.clips.length} 段發言。\n正在錄的人：${recorded}`,
-      ...ephemeral,
+      allowedMentions: { parse: [] },
+    }, {
+      privateReply, sourceChannelId: session.channel.id,
+      verifyAccess: async () => (await readSourceAccess(interaction.guild, session.channel.id, interaction.user.id)).decision === 'allow',
     });
   }
 

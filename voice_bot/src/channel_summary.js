@@ -2,6 +2,7 @@ import { AttachmentBuilder, ChannelType, MessageFlags, SlashCommandBuilder } fro
 
 import { accessTo, threadMembership } from './ai.js';
 import { runChannelSummary } from './ingest.js';
+import { deliverResult } from './replies.js';
 
 export const channelSummaryCommand = new SlashCommandBuilder()
   .setName('summary_this_channel')
@@ -31,7 +32,7 @@ export async function getReadableChannel(interaction) {
   return userCanRead && botCanRead ? channel : null;
 }
 
-export async function summarizeCurrentChannel(interaction, config, summarize = runChannelSummary) {
+export async function summarizeCurrentChannel(interaction, config, summarize = runChannelSummary, { privateReply = false } = {}) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const unavailable = '無法確認你和 Bot 都有目前頻道的檢視與歷史訊息讀取權限。請在可讀取歷史訊息的頻道重試。';
 
@@ -47,13 +48,17 @@ export async function summarizeCurrentChannel(interaction, config, summarize = r
       channelId: channel.id,
     });
     if (!result.count) return interaction.editReply('目前頻道還沒有可摘要的文字紀錄。');
-    if (!(await getReadableChannel(interaction).catch(() => null))) return interaction.editReply(unavailable);
-
     const heading = `**頻道摘要**（最近 ${result.count} 則已記錄文字）`;
     const content = `${heading}\n${result.summary}`;
-    if (content.length <= 2000) return interaction.editReply({ content, ...noPings });
-    const file = new AttachmentBuilder(Buffer.from(content, 'utf-8'), { name: 'channel-summary.md' });
-    return interaction.editReply({ content: `${heading}\n完整摘要請見附件。`, files: [file], ...noPings });
+    let payload = { content, ...noPings };
+    if (content.length > 2000) {
+      const file = new AttachmentBuilder(Buffer.from(content, 'utf-8'), { name: 'channel-summary.md' });
+      payload = { ...payload, content: `${heading}\n完整摘要請見附件。`, files: [file] };
+    }
+    return await deliverResult(interaction, payload, {
+      privateReply, sourceChannelId: interaction.channelId,
+      verifyAccess: async () => Boolean(await getReadableChannel(interaction).catch(() => null)),
+    });
   } catch (error) {
     console.error('[頻道摘要] 執行失敗：', error.name);
     return interaction.editReply('無法產生頻道摘要，請稍後再試或請管理員確認摘要器設定。');
