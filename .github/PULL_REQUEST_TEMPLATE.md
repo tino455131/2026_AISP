@@ -1,7 +1,13 @@
-<!-- Based on the Week 12 Lab pull request template. -->
+<!-- Based on the Week 12 Lab pull request template, with the team's existing summary and decision fields. -->
 
-## What and why
-<!-- One or two sentences. Link the issue or DECISIONS.md entry. -->
+## What this PR does
+<!-- Summarize what changed and why in one or two sentences. Link the issue or DECISIONS.md entry. -->
+
+## Decision (required if a significant choice was made)
+- Decision: [what was chosen]
+- Why: [what problem this solves or what alternative it beat]
+- Alternative rejected: [optional]
+- Led by: [name]
 
 ## AI assistance
 - Tool and model: <!-- none / Claude Code / chat / ... -->
