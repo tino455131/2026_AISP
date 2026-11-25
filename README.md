@@ -7,6 +7,7 @@ Discord 團隊助理提供文字記錄、語音與文字會議摘要，以及私
 | 安裝、設定、啟動 | [本頁的快速開始](#從專案根目錄設定與啟動) |
 | 操作 Discord Bot、查已知限制 | [Team Bot 使用說明](team_bot/README.md) |
 | 開發 AI tool、用假資料測試 | [AI 團隊接手指南](docs/ai_team_guide.md) |
+| 撰寫和審查 AI 輔助的 PR | [AI 使用規範](docs/ai-usage-guidelines.md) |
 | 串接與設定會議摘要器 | [摘要器介面](meeting_ai/README.md) |
 | 查詢 SQL 方法、資料表及授權規則 | [SQLite API](SQL_API_README.md) · [資料表](docs/database_schema.md) · [Discord 授權讀取](docs/ai_memory_api.md) |
 | 了解程式與資料流 | [系統流程圖](docs/SystemWorkflow.html) |
