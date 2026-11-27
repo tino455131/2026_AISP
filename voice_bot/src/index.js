@@ -4,6 +4,7 @@ import { ApplicationFlagsBitField, Client, Events, GatewayIntentBits } from 'dis
 import { RecordController } from './commands.js';
 import { AiController } from './ai.js';
 import { commands, dispatchSlash } from './slash_commands.js';
+import { handleMentionMessage } from './mention_chat.js';
 import { USAGE, argsToEnv, loadConfig, loadRootEnv } from './config.js';
 
 loadRootEnv();
@@ -27,8 +28,13 @@ try {
   process.exit(1);
 }
 
-// Guilds + GuildVoiceStates are not privileged intents: no extra switches in the Developer Portal.
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
+// MessageContent is privileged and must be enabled in the Developer Portal.
+const client = new Client({ intents: [
+  GatewayIntentBits.Guilds,
+  GatewayIntentBits.GuildVoiceStates,
+  GatewayIntentBits.GuildMessages,
+  GatewayIntentBits.MessageContent,
+] });
 const controller = new RecordController(client, config);
 const ai = new AiController(client, config);
 
@@ -40,7 +46,7 @@ client.once(Events.ClientReady, async (ready) => {
   const app = await ready.application.fetch();
   const content = ApplicationFlagsBitField.Flags;
   if (!app.flags.any(content.GatewayMessageContent | content.GatewayMessageContentLimited)) {
-    console.warn('提醒：Developer Portal 還沒開 Message Content Intent，文字記錄會受影響（見 team_bot/README.md）');
+    console.warn('提醒：Developer Portal 還沒開 Message Content Intent，文字記錄與 @Bot 問答會受影響（見 team_bot/README.md）');
   }
   console.log(`摘要器：${config.summarizer}；語音辨識：${config.sttEngine}`);
   if (config.autoRecord) {
@@ -73,6 +79,13 @@ client.on(Events.InteractionCreate, (interaction) => {
         () => {},
       );
     }
+  });
+});
+
+client.on(Events.MessageCreate, (message) => {
+  handleMentionMessage(message, config).catch((error) => {
+    // Never log the question, model answer, or upstream error body here.
+    console.error('[提及問答] 無法處理訊息：', error.name);
   });
 });
 
