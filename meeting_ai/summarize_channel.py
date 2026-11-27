@@ -20,7 +20,7 @@ def summarize_channel(
     messages = [
         {
             "message_id": row["message_id"],
-            "author_id": row["author_id"],
+            "author_id": row["user_id"],
             "created_at": row["created_at"],
             "text": row["content"],
         }

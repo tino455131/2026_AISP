@@ -66,7 +66,7 @@ class SQLiteAPITests(unittest.TestCase):
             store.save_text_meeting({"meeting_id": "mtg-incomplete"})
 
     def test_existing_text_and_voice_rows_survive_initialization(self) -> None:
-        # A file created with the old table layout should open without data migration.
+        # A legacy file keeps its rows when the message user column is renamed.
         with closing(sqlite3.connect(self.path)) as connection, connection:
             connection.executescript(
                 """
@@ -99,10 +99,32 @@ class SQLiteAPITests(unittest.TestCase):
                 (CREATED,),
             )
 
+        old_read_only = SQLiteStore(self.path, read_only=True)
+        self.assertEqual(old_read_only.get_channel_message_list(10, 101)[0]["user_id"], 7)
+        self.assertEqual(old_read_only.get_user_name(7), "")
+
         store = SQLiteStore(self.path)
-        self.assertEqual(store.get_channel_message_list(10, 101)[0]["content"], "舊訊息")
+        row = store.get_channel_message_list(10, 101)[0]
+        self.assertEqual((row["content"], row["user_id"]), ("舊訊息", 7))
+        with closing(sqlite3.connect(self.path)) as connection:
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(messages)")}
+            self.assertIn("user_id", columns)
+            self.assertNotIn("author_id", columns)
+        self.assertEqual(SQLiteStore(self.path).get_channel_message_list(10, 101)[0]["user_id"], 7)
         self.assertEqual(store.list_transcript_lines("old")[0].text, "舊逐字稿")
         self.assertEqual(store.get_session_summary("old").content, "舊摘要")
+
+    def test_user_names_update_without_changing_saved_messages(self) -> None:
+        store = SQLiteStore(self.path)
+        store.save_message(message_id=1, guild_id=10, channel_id=101, user_id=7, content="hello", created_at=CREATED)
+        store.save_user_names([(7, "old-name"), (8, "other-name")])
+        store.save_user_names([(7, "new-name")])
+
+        reader = SQLiteStore(self.path, read_only=True)
+        self.assertEqual(reader.get_user_name(7), "new-name")
+        self.assertEqual(reader.get_user_name(8), "other-name")
+        self.assertEqual(reader.get_user_name(9), "")
+        self.assertEqual(reader.get_channel_message_list(10, 101)[0]["user_id"], 7)
 
     def test_channel_and_guild_delete_both_kinds_without_touching_others(self) -> None:
         store = SQLiteStore(self.path)

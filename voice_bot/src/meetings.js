@@ -9,6 +9,7 @@ import { AttachmentBuilder, MessageFlags, PermissionFlagsBits, SlashCommandBuild
 
 import { isLeader } from './commands.js';
 import { runTextMeeting } from './ingest.js';
+import { replyFlags } from './replies.js';
 
 export const meetingCommand = new SlashCommandBuilder()
   .setName('meeting')
@@ -115,18 +116,18 @@ export class MeetingController {
     await writeFile(this.file, JSON.stringify([...this.active.values()], null, 2));
   }
 
-  async handle(interaction) {
-    const sub = interaction.options.getSubcommand();
-    if (sub === 'start') return this.#start(interaction);
-    if (sub === 'end') return this.#end(interaction);
-    return this.#status(interaction);
+  async handle(interaction, { options = interaction.options, privateReply = false } = {}) {
+    const sub = options.getSubcommand();
+    if (sub === 'start') return this.#start(interaction, privateReply);
+    if (sub === 'end') return this.#end(interaction, privateReply);
+    return this.#status(interaction, privateReply);
   }
 
   async #channel(interaction) {
     return interaction.channel ?? (await this.client.channels.fetch(interaction.channelId));
   }
 
-  async #start(interaction) {
+  async #start(interaction, privateReply) {
     if (!isLeader(interaction.member, this.config.leaderRoleId)) {
       return interaction.reply({ content: '只有組長可以開始會議。', ...ephemeral });
     }
@@ -145,7 +146,7 @@ export class MeetingController {
       return interaction.reply({ content: `bot 在這個頻道少了權限：${missing.join('、')}，請管理員幫它加上。`, ...ephemeral });
     }
 
-    await interaction.deferReply(ephemeral);
+    await interaction.deferReply(replyFlags(privateReply));
     const recipient = this.config.summaryRecipient;
     const notice = await channel.send({
       content: [
@@ -168,7 +169,7 @@ export class MeetingController {
     return interaction.editReply('已開始會議。結束時請在這個頻道用 /meeting end。');
   }
 
-  async #end(interaction) {
+  async #end(interaction, privateReply) {
     if (!isLeader(interaction.member, this.config.leaderRoleId)) {
       return interaction.reply({ content: '只有組長可以結束會議。', ...ephemeral });
     }
@@ -176,7 +177,7 @@ export class MeetingController {
     const meeting = channel && this.active.get(channel.id);
     if (!meeting) return interaction.reply({ content: '這個頻道沒有進行中的會議。', ...ephemeral });
 
-    await interaction.deferReply(ephemeral);
+    await interaction.deferReply(replyFlags(privateReply));
     const status = await channel.send({ content: '⏹ **會議結束**，正在整理紀錄…', ...silent, ...noPings });
     this.active.delete(channel.id);
     await this.#save();
@@ -216,7 +217,7 @@ export class MeetingController {
     } catch (error) {
       console.error('[會議] 整理失敗：', error);
       await status.edit({ content: `⏹ **會議結束**，但整理紀錄失敗：${error.message}`, ...noPings }).catch(() => {});
-      return interaction.editReply(`整理紀錄失敗：${error.message}`);
+      return interaction.editReply('整理會議紀錄失敗，請稍後再試。');
     }
   }
 
@@ -224,12 +225,12 @@ export class MeetingController {
     return readMeetingMessages(channel, startId, endId);
   }
 
-  async #status(interaction) {
+  async #status(interaction, privateReply) {
     const meeting = this.active.get(interaction.channelId);
-    if (!meeting) return interaction.reply({ content: '這個頻道沒有進行中的會議。', ...ephemeral });
+    if (!meeting) return interaction.reply({ content: '這個頻道沒有進行中的會議。', ...replyFlags(privateReply) });
     return interaction.reply({
       content: `📝 會議進行中：<@${meeting.startedBy}> 在 <t:${unix(meeting.startedAt)}:t> 開始。結束請用 /meeting end。`,
-      ...ephemeral,
+      ...replyFlags(privateReply),
       ...noPings,
     });
   }

@@ -116,9 +116,9 @@ class LocalData:
         if from_table:
             people = set(speakers.values())
             messages = [
-                {"message_id": m["message_id"], "author_id": m["author_id"], "created_at": m["created_at"],
+                {"message_id": m["message_id"], "author_id": m["user_id"], "created_at": m["created_at"],
                  "text": m["content"], "mentions": [{"id": found} for found in MENTION.findall(m["content"])]}
-                for m in saved_rows if m["author_id"] in people
+                for m in saved_rows if m["user_id"] in people
             ]
         if messages:  # same labels as the summary, "<@id>" becomes "@名字（S3）"
             built, names, user_of, source = build_text_lines(messages)

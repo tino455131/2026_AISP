@@ -31,7 +31,7 @@ messages = await client.message_reader.recent_messages_for(member_id, channel_id
 |---|---|
 | `message_id` | Discord 訊息 ID |
 | `guild_id`／`channel_id` | 伺服器／頻道 ID |
-| `author_id` | 發言者 Discord ID（名字請用 `channel_access.visible_members()` 或 Discord 查） |
+| `user_id` | 發言者的 Discord 帳號 ID。帳號 username 可用 `SQLiteStore.get_user_name(user_id)` 查詢，頻道顯示名稱可由 Discord 取得。 |
 | `content` | 文字內容 |
 | `created_at`／`edited_at` | ISO 8601，UTC |
 

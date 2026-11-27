@@ -14,6 +14,10 @@ from sqlite_api import PROJECT_ROOT, SQLiteStore, resolve_database_path
 from transcript_reader import AuthorizedTranscriptReader
 
 
+def _is_human_message(message: discord.Message) -> bool:
+    return not message.author.bot and message.webhook_id is None
+
+
 class BotClient(discord.Client):
     def __init__(self, guild_id: int, store: SQLiteStore) -> None:
         intents = discord.Intents.default()
@@ -28,6 +32,7 @@ class BotClient(discord.Client):
         self.message_reader = AuthorizedMessageReader(self.channel_access, store)
         # Voice transcripts (F6) live in the same database file as messages.
         self.transcript_reader = AuthorizedTranscriptReader(self.channel_access, store)
+        self._user_names_lock = asyncio.Lock()
         self._backfill_started = False
         self._backfill_task: asyncio.Task[None] | None = None
 
@@ -42,6 +47,34 @@ class BotClient(discord.Client):
         if not self._backfill_started:
             self._backfill_started = True
             self._backfill_task = asyncio.create_task(self.backfill_history())
+        await self._sync_user_names()
+
+    async def _sync_user_names(self) -> None:
+        """Refresh usernames from the configured guild before applying queued updates."""
+        guild = self.get_guild(self.guild_id)
+        if guild is None:
+            return
+        async with self._user_names_lock:
+            try:
+                users = [(member.id, member.name) async for member in guild.fetch_members(limit=None)]
+            except discord.HTTPException:
+                logging.exception("Could not sync usernames in guild %d", self.guild_id)
+                return
+            await asyncio.to_thread(self.store.save_user_names, users)
+        logging.info("Synced %d username(s) for guild %d", len(users), self.guild_id)
+
+    async def on_member_join(self, member: discord.Member) -> None:
+        if member.guild.id == self.guild_id:
+            async with self._user_names_lock:
+                await asyncio.to_thread(self.store.save_user_names, [(member.id, member.name)])
+
+    async def on_user_update(self, before: discord.User, after: discord.User) -> None:
+        if before.name == after.name:
+            return
+        guild = self.get_guild(self.guild_id)
+        if guild is not None and guild.get_member(after.id) is not None:
+            async with self._user_names_lock:
+                await asyncio.to_thread(self.store.save_user_names, [(after.id, after.name)])
 
     async def backfill_history(self) -> None:
         """Import accessible text channel and thread history on startup."""
@@ -106,7 +139,7 @@ class BotClient(discord.Client):
                 self.guild_id,
                 channel.id,
                 message.author.id,
-                message.content,
+                message.content if _is_human_message(message) else "",
                 message.created_at.isoformat(),
                 message.edited_at.isoformat() if message.edited_at else None,
             )
@@ -116,7 +149,7 @@ class BotClient(discord.Client):
         logging.info("Imported %d historical event(s) from channel/thread %d", count, channel.id)
 
     async def on_message(self, message: discord.Message) -> None:
-        if message.guild is None or message.guild.id != self.guild_id or not message.content:
+        if message.guild is None or message.guild.id != self.guild_id or not message.content or not _is_human_message(message):
             return
         await asyncio.to_thread(
             self.store.save_message,
@@ -128,7 +161,7 @@ class BotClient(discord.Client):
             message.created_at.isoformat(),
         )
 
-        logging.info("New message [channel=%d, author=%d]: %r", message.channel.id, message.author.id, message.content)
+        logging.info("New message [channel=%d, user=%d]: %r", message.channel.id, message.author.id, message.content)
 
     async def on_raw_message_edit(self, payload: discord.RawMessageUpdateEvent) -> None:
         if payload.guild_id != self.guild_id:
@@ -136,32 +169,36 @@ class BotClient(discord.Client):
         content = payload.data.get("content")
         if not isinstance(content, str):
             return  # Other edits, such as embed updates, contain no new text.
+        if payload.data.get("webhook_id") or (payload.data.get("author") or {}).get("bot"):
+            return
+        try:
+            message = payload.cached_message or payload.message
+            if message is None or getattr(message, "author", None) is None:
+                channel = self.get_channel(payload.channel_id)
+                if channel is None:
+                    channel = await self.fetch_channel(payload.channel_id)
+                message = await channel.fetch_message(payload.message_id)
+        except discord.HTTPException:
+            logging.warning("Could not verify author of edited message %d", payload.message_id)
+            return
+        if message.guild is None or message.guild.id != self.guild_id or not _is_human_message(message):
+            return
+
         edited_at = payload.data.get("edited_timestamp") or datetime.now(timezone.utc).isoformat()
         updated = await asyncio.to_thread(
             self.store.update_message, payload.message_id, self.guild_id, content, edited_at
         )
         if not updated and (content or payload.data.get("edited_timestamp")):
-            try:
-                message = payload.message
-                if message is None:
-                    channel = self.get_channel(payload.channel_id)
-                    if channel is None:
-                        channel = await self.fetch_channel(payload.channel_id)
-                    message = await channel.fetch_message(payload.message_id)
-                if message.guild is None or message.guild.id != self.guild_id:
-                    return
-                await asyncio.to_thread(
-                    self.store.save_message,
-                    payload.message_id,
-                    self.guild_id,
-                    payload.channel_id,
-                    message.author.id,
-                    content,
-                    message.created_at.isoformat(),
-                    edited_at=edited_at,
-                )
-            except discord.HTTPException:
-                logging.warning("Could not fetch edited message %d", payload.message_id)
+            await asyncio.to_thread(
+                self.store.save_message,
+                payload.message_id,
+                self.guild_id,
+                payload.channel_id,
+                message.author.id,
+                content,
+                message.created_at.isoformat(),
+                edited_at=edited_at,
+            )
 
     async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent) -> None:
         if payload.guild_id == self.guild_id:
@@ -200,9 +237,11 @@ def main() -> None:
     store = SQLiteStore(resolve_database_path(os.getenv("BOT_DB")))
     client = BotClient(guild_id, store)
 
-    @client.tree.command(name="ping", description="Check whether the bot is online")
-    async def ping(interaction: discord.Interaction) -> None:
-        await interaction.response.send_message("Pong! 🏓")
+    # Standalone slash commands are temporarily paused. Keep guild sync to remove
+    # an existing /ping registration when this bot restarts.
+    # @client.tree.command(name="ping", description="Check whether the bot is online")
+    # async def ping(interaction: discord.Interaction) -> None:
+    #     await interaction.response.send_message("Pong! 🏓")
 
     client.run(token)
 

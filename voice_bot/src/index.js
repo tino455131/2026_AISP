@@ -1,13 +1,10 @@
 // Entry point: node src/index.js (or npm start) inside voice_bot/. Settings come from the root .env.
-import { ApplicationFlagsBitField, Client, Events, GatewayIntentBits, SlashCommandBuilder } from 'discord.js';
+import { ApplicationFlagsBitField, Client, Events, GatewayIntentBits } from 'discord.js';
 
-import { RecordController, recordCommand } from './commands.js';
-import { MeetingController, meetingCommand } from './meetings.js';
-import { AiController, aiCommand } from './ai.js';
-import { channelSummaryCommand, summarizeCurrentChannel } from './channel_summary.js';
-import { askCurrentChannel, channelAskCommand } from './channel_ask.js';
+import { RecordController } from './commands.js';
+import { AiController } from './ai.js';
+import { commands, dispatchSlash } from './slash_commands.js';
 import { handleMentionMessage } from './mention_chat.js';
-import { helpCommand, showHelp } from './help.js';
 import { USAGE, argsToEnv, loadConfig, loadRootEnv } from './config.js';
 
 loadRootEnv();
@@ -39,23 +36,17 @@ const client = new Client({ intents: [
   GatewayIntentBits.MessageContent,
 ] });
 const controller = new RecordController(client, config);
-const meetings = new MeetingController(client, config);
 const ai = new AiController(client, config);
-// Same command as the text bot's /ping, so the merged bot (team_bot) keeps it.
-const pingCommand = new SlashCommandBuilder().setName('ping').setDescription('確認 bot 在線上');
-const commands = [recordCommand, meetingCommand, aiCommand, channelSummaryCommand, channelAskCommand, pingCommand, helpCommand]
-  .map((command) => command.toJSON());
 
 client.once(Events.ClientReady, async (ready) => {
   const guild = await ready.guilds.fetch(config.guildId);
   // This process is the only one that registers commands (the merged text logger registers none).
   await guild.commands.set(commands);
-  await meetings.load();
   console.log(`語音錄音 bot 已上線：${ready.user.tag}，服務伺服器 ${guild.name}（${commands.map(({ name }) => `/${name}`).join('、')} 指令已註冊）`);
   const app = await ready.application.fetch();
   const content = ApplicationFlagsBitField.Flags;
   if (!app.flags.any(content.GatewayMessageContent | content.GatewayMessageContentLimited)) {
-    console.warn('提醒：Developer Portal 還沒開 Message Content Intent，文字記錄、@Bot 問答與 /meeting 會受影響（見 team_bot/README.md）');
+    console.warn('提醒：Developer Portal 還沒開 Message Content Intent，文字記錄與 @Bot 問答會受影響（見 team_bot/README.md）');
   }
   console.log(`摘要器：${config.summarizer}；語音辨識：${config.sttEngine}`);
   if (config.autoRecord) {
@@ -70,28 +61,21 @@ client.on(Events.InteractionCreate, (interaction) => {
   // Progress buttons arrive in DMs (no server); everything else only from this server.
   const dmProgress = !interaction.guildId && interaction.isButton() && interaction.customId.startsWith('progress:');
   if (interaction.guildId !== config.guildId && !dmProgress) return;
-  if (interaction.isAutocomplete() && interaction.commandName === 'ai') {
-    ai.autocomplete(interaction).catch((error) => console.error('[AI] 自動完成失敗：', error.message));
+  if (interaction.isAutocomplete()) {
+    interaction.respond([]).catch((error) => console.error('[指令] 自動完成失敗：', error.message));
     return;
   }
-  const command = interaction.isChatInputCommand() ? interaction.commandName : null;
-  const handlers = {
-    meeting: () => meetings.handle(interaction),
-    ai: () => ai.handle(interaction),
-    ask: () => askCurrentChannel(interaction, config),
-    help: () => showHelp(interaction, commands),
-    summary_this_channel: () => summarizeCurrentChannel(interaction, config),
-    ping: () => interaction.reply('Pong! 🏓'),
-  };
   const aiButton = interaction.isButton() && /^(track|progress):/.test(interaction.customId);
   const work = aiButton
     ? ai.button(interaction)
-    : (handlers[command] ?? (() => controller.handle(interaction)))(); // /record and its buttons
+    : interaction.isChatInputCommand()
+      ? dispatchSlash(interaction, config)
+      : controller.handle(interaction); // recording and viewer buttons
   work.catch(async (error) => {
     console.error('[指令] 失敗：', error);
-    const reply = { content: `出錯了：${error.message}`, flags: 64 };
+    const reply = { content: '指令執行失敗，請稍後再試。' };
     if (interaction.isRepliable()) {
-      await (interaction.deferred || interaction.replied ? interaction.editReply(reply) : interaction.reply(reply)).catch(
+      await (interaction.deferred || interaction.replied ? interaction.editReply(reply) : interaction.reply({ ...reply, flags: 64 })).catch(
         () => {},
       );
     }

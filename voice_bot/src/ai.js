@@ -1,7 +1,7 @@
 // /ai tasks | ask | tracked —【測試】在 Discord 裡試 AI 單元（ai_demo）和追蹤進度。
 // The bot first checks that the person can read the meeting's channel (View Channel +
 // Read Message History, spec R15), then ai_demo reads the meeting and asks the AI. Answers are
-// only shown to the person who asked (spec R16). For a text meeting the bot reads the original
+// published only when the current channel audience can read the source. For a text meeting the bot reads the original
 // messages from Discord right now (spec: read on demand) instead of keeping a copy.
 //
 // Tracking (test): /ai tasks shows a "追蹤進度" button for formal tasks. The leader's press is
@@ -23,13 +23,14 @@ import {
 import { isLeader } from './commands.js';
 import { runAiDemo } from './ingest.js';
 import { readMeetingMessages } from './meetings.js';
+import { deliverResult, readSourceAccess } from './replies.js';
 
 const meetingOption = (option) =>
   option.setName('meeting').setDescription('哪一場會議（打字可以搜尋）').setRequired(true).setAutocomplete(true);
 
 export const aiCommand = new SlashCommandBuilder()
   .setName('ai')
-  .setDescription('【測試】用 AI 整理會議，結果只有你看得到')
+  .setDescription('【測試】用 AI 整理會議、詢問內容或查看追蹤')
   .addSubcommand((sub) =>
     sub
       .setName('tasks')
@@ -90,7 +91,7 @@ export function accessTo(member, channel, threadMember) {
 /** For a private thread, ask Discord whether this person is in it: true / false, or undefined when unsure. */
 export async function threadMembership(channel, member) {
   if (channel?.type !== ChannelType.PrivateThread || !member) return undefined;
-  return channel.members.fetch({ member: member.id }).then(
+  return channel.members.fetch({ member: member.id, force: true, cache: false }).then(
     () => true,
     (error) => (error.code === 10007 ? false : undefined), // 10007 Unknown Member: not in the thread
   );
@@ -198,9 +199,7 @@ export class AiController {
   }
 
   async #access(guild, userId, channelId) {
-    const member = await guild.members.fetch(userId).catch(() => null);
-    const channel = guild.channels.cache.get(channelId) ?? (await guild.channels.fetch(channelId).catch(() => null));
-    return { decision: accessTo(member, channel, await threadMembership(channel, member)), channel, member };
+    return readSourceAccess(guild, channelId, userId);
   }
 
   /** Search-as-you-type: only meetings whose channel this person can read. */
@@ -220,10 +219,10 @@ export class AiController {
     return interaction.respond(choices);
   }
 
-  async handle(interaction) {
-    const sub = interaction.options.getSubcommand();
+  async handle(interaction, { options = interaction.options, privateReply = false } = {}) {
+    const sub = options.getSubcommand();
     if (sub === 'tracked') return this.#tracked(interaction);
-    const meetingId = interaction.options.getString('meeting', true);
+    const meetingId = options.getString('meeting', true);
     await interaction.deferReply(ephemeral);
 
     this.cache.at = 0; // a meeting that just ended should be found
@@ -251,31 +250,27 @@ export class AiController {
       }
       input = JSON.stringify({ messages: read.messages });
     }
-    const leader = interaction.options.getUser('leader');
+    const leader = sub === 'tasks' ? options.getUser('leader') : null;
     const args =
       sub === 'tasks'
         ? ['tasks', meetingId, ...(leader ? ['--leader', leader.id] : [])]
-        : ['ask', meetingId, interaction.options.getString('question', true)];
+        : ['ask', meetingId, options.getString('question', true)];
     const result = await this.#run(input ? ['--stdin', ...args] : args, input);
-    // spec AC23: access may have been taken away while the AI was working; check again before showing.
-    const again = (await this.#access(interaction.guild, interaction.user.id, meeting.channel_id)).decision;
-    if (again !== 'allow') {
-      return interaction.editReply(again === 'deny' ? REFUSED.ACCESS_DENIED_USER : REFUSED.PERMISSION_UNVERIFIED);
-    }
-    if (!result.ok && sub === 'tasks') return interaction.editReply(result.message ?? REFUSED.NOT_FOUND);
+    if (!result.ok && sub === 'tasks') return interaction.editReply(REFUSED.NOT_FOUND);
     if (sub === 'tasks') {
       console.log(`[AI] 整理任務：${result.tasks.length} 項正式、${result.proposals.length} 項提案`);
     }
 
     const text = sub === 'tasks' ? formatTasks(result, label) : formatAnswer(result, label);
     const components = sub === 'tasks' && result.tasks.length ? [this.#trackButton(interaction, meeting, result)] : [];
-    if (text.length <= DISCORD_LIMIT) return interaction.editReply({ content: text, components, ...noPings });
-    const file = new AttachmentBuilder(Buffer.from(text, 'utf-8'), { name: `ai-${sub}-${meetingId}.md` });
-    return interaction.editReply({
-      content: `🧪 **【測試】${label}**：內容比較長，放在附件。`,
-      files: [file],
-      components,
-      ...noPings,
+    let payload = { content: text, components, ...noPings };
+    if (text.length > DISCORD_LIMIT) {
+      const file = new AttachmentBuilder(Buffer.from(text, 'utf-8'), { name: `ai-${sub}-${meetingId}.md` });
+      payload = { ...payload, content: `🧪 **【測試】${label}**：內容比較長，放在附件。`, files: [file] };
+    }
+    return deliverResult(interaction, payload, {
+      privateReply, sourceChannelId: String(meeting.channel_id),
+      verifyAccess: async () => (await this.#access(interaction.guild, interaction.user.id, meeting.channel_id)).decision === 'allow',
     });
   }
 
@@ -317,11 +312,16 @@ export class AiController {
     if (pending.createdBy !== interaction.user.id || !isLeader(interaction.member, this.config.leaderRoleId)) {
       return interaction.reply({ content: '只有下這個指令的組長可以確認追蹤（spec：正式派工是組長的權限）。', ...ephemeral });
     }
-    this.pending.delete(id); // one confirmation, used once
-    await interaction.deferUpdate();
+    await interaction.deferReply(ephemeral);
     const { confirmation } = pending;
     const guild = interaction.guild;
-    const channel = guild.channels.cache.get(confirmation.channel_id);
+    const leaderAccess = await this.#access(guild, interaction.user.id, confirmation.channel_id);
+    if (leaderAccess.decision !== 'allow' || !isLeader(leaderAccess.member, this.config.leaderRoleId)) {
+      return interaction.editReply(REFUSED.PERMISSION_UNVERIFIED);
+    }
+    if (this.pending.get(id) !== pending) return interaction.editReply('這個確認已經用過了。');
+    this.pending.delete(id);
+    const channel = leaderAccess.channel;
 
     // spec R18: an owner who cannot read the source channel is not messaged; the leader decides.
     const access = {};
@@ -394,11 +394,21 @@ export class AiController {
   async #tracked(interaction) {
     await interaction.deferReply(ephemeral);
     const result = await this.#run(['tracked', '--guild', interaction.guildId]);
-    const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-    // Only tasks from channels this person can read (spec R15), without saying how many were hidden.
-    const visible = (result.tasks ?? []).filter(
-      (task) => accessTo(member, interaction.guild.channels.cache.get(String(task.channel_id))) === 'allow',
-    );
+    const currentUser = interaction.user.id;
+    const accessByChannel = new Map();
+    const visible = [];
+    for (const task of result.tasks ?? []) {
+      const owner = String(task.owner_user_id) === currentUser;
+      const leader = String(task.created_by) === currentUser && isLeader(interaction.member, this.config.leaderRoleId);
+      if (!owner && !leader) continue;
+      const channelId = String(task.channel_id);
+      if (!accessByChannel.has(channelId)) {
+        const { decision } = await this.#access(interaction.guild, currentUser, channelId);
+        accessByChannel.set(channelId, decision === 'allow');
+      }
+      if (accessByChannel.get(channelId)) visible.push(task);
+      if (visible.length === 30) break;
+    }
     if (visible.length === 0) return interaction.editReply('目前沒有你看得到的追蹤中任務。');
     const lines = ['📋 **【測試】追蹤中的任務**'];
     for (const task of visible.slice(0, 30)) {

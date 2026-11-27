@@ -35,7 +35,7 @@ Discord 團隊助理提供文字記錄、語音與文字會議摘要，以及私
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\SETUP_Windows.ps1
 ```
 
-估算依作業系統與 CPU 架構而異，已計入安裝暫存。首次執行語音轉寫時，預設的 [Breeze-ASR-25 模型](https://huggingface.co/SoybeanMilk/faster-whisper-Breeze-ASR-25/tree/main) 還需要約 3.1 GB。Windows 若出現 CTranslate2 載入 DLL 的錯誤，請確認已安裝 [Microsoft Visual C++ Redistributable x64](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist)。
+估算依作業系統與 CPU 架構而異，已計入安裝暫存。一鍵腳本會安裝語音轉寫套件。預設的 [Breeze-ASR-25 模型](https://huggingface.co/SoybeanMilk/faster-whisper-Breeze-ASR-25/tree/main) 到首次使用本機轉寫時才下載，另需約 3.1 GB。Windows 若出現 CTranslate2 載入 DLL 的錯誤，請確認已安裝 [Microsoft Visual C++ Redistributable x64](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist)。
 
 安裝後再編輯根目錄的 `.env`。腳本會保留既有設定，並檢查本機的 Python 與 Node.js 版本。
 

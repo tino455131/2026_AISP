@@ -47,9 +47,11 @@ npm --prefix voice_bot start -- --summarizer openai --stt openai
 | `--auto-record` | `on`、`off` |
 
 `npm --prefix voice_bot start -- --help` 會列出來。API key 只能放 `.env`，不能當參數，因為參數會出現在命令列和紀錄裡。
-長期用的設定寫在 `.env`，臨時換用參數。`/record` 指令會自動註冊到 `.env` 指定的伺服器。
+長期用的設定寫在 `.env`，臨時換用參數。目前啟用的斜線指令會註冊到 `.env` 指定的伺服器。
 
 ## 使用
+
+`/record` 暫停註冊。以下說明錄音指令恢復時的操作；自動錄音依啟動設定執行。
 
 | 指令／按鈕 | 誰可以用 | 做什麼 |
 |---|---|---|

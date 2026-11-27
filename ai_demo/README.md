@@ -12,7 +12,7 @@ SQLite ──▶ SQLiteStore（唯讀）──▶ local_data.py ──▶ tasks.
 
 ## 在 Discord 裡用：`/ai`
 
-`/ai` 提供以下三個子指令，回覆只顯示給執行者。追蹤狀態的資料可見範圍見 [Team Bot 已知限制](../team_bot/README.md#已知限制)。
+Discord 的 `/ai` 指令暫停註冊，以下保留流程說明。可從終端機繼續使用 AI demo。同一來源頻道的會議結果通過聽眾驗權才會公開。跨頻道結果與回報進度使用私人回覆。
 
 | 指令 | 做什麼 |
 |---|---|
@@ -25,7 +25,7 @@ SQLite ──▶ SQLiteStore（唯讀）──▶ local_data.py ──▶ tasks.
 - 照 spec R15，bot 會先確認你看得到那場會議的頻道（檢視頻道＋讀取訊息歷史），才去讀資料。看不到就回「你沒有權限取得所要求的資訊」，確認不了就回「暫時無法確認你的權限」。
 - 用 Claude Code 大約要 5～40 秒，期間會顯示「AI 正在讀…」。
 
-流程：`Discord /ai` → voice_bot（`src/ai.js`）檢查權限 → `python -m ai_demo --bot …` 讀資料庫、問 AI → 結果只回給你。
+流程：`Discord /ai` → voice_bot（`src/ai.js`）檢查權限 → `python -m ai_demo --bot …` 讀資料庫、問 AI → 依來源與聽眾權限交付結果。
 
 文字會議表保存範圍、摘要和引用。Discord 的 `/ai` 會從來源頻道讀取原文，若回傳空清單，就以已保存的摘要回答。被 @ 的人即使沒說話也會有代號，所以「@某人 負責…」認得出負責人。
 
