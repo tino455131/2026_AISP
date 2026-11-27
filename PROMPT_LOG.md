@@ -879,3 +879,10 @@ AI 用選項確認後，使用者回答：
 **檢查：** 全部通過：text_bot 35、查看按鈕 7、demo_data 3、voice_stt 30、meeting_ai 27（1 略過）、ai_demo 12、voice_bot 21。重新產生假資料庫後，文字會議紀錄可以從 `get_text_meeting()` 讀回來，`try_readers` 7 個例子和 `ai_demo list` 都正常。
 
 **我改了什麼、為什麼：** ［待 Ping3227 填寫］
+
+## 2026-11-25 — Week 12 AI usage guidelines
+
+- **Prompt:** Add the three revised Lab 12 rules to the repository and open a PR.
+- **Tool:** Codex.
+- **Produced:** Added the rules to `docs/ai-usage-guidelines.md` and linked the guide from `README.md` so teammates can find it.
+- **Checks:** Compared the three rules with the lab submission and checked the relative links and diff.
